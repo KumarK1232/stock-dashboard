@@ -21,7 +21,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run dashboard
-        run: python TopBottomwithwatchlist_report_builder_39__FINAL.py
+        run: python script_deploy.py
         env:
           GITHUB_ACTIONS: "true"
 
@@ -32,4 +32,5 @@ jobs:
           git add docs favorites.xlsx || true
           git commit -m "Auto update dashboard" || echo "No changes"
           git push
+
 
