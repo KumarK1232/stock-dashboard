@@ -16,6 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # Helps avoid sync issues
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,12 +39,14 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 1. Force remove any accidental large files from the Git index
+          # 1. Clean up tracking of folders we don't want on GitHub
           git rm -r --cached Output/ cache/ tb_cache/ || echo "Folders already cleared"
           
-          # 2. ONLY add the docs folder (your website)
+          # 2. Add the docs folder (website) and any script updates
           git add docs/
           
-          # 3. Commit and Push
+          # 3. Commit
           git commit -m "Auto update dashboard: $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push
+          
+          # 4. FORCE PUSH to overwrite conflicts
+          git push origin main --force
