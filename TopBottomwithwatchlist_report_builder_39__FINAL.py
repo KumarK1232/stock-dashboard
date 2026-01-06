@@ -73,20 +73,26 @@ PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Create a "Output" folder inside your project directory if it doesn't exist
-MASTER_OUTPUT_DIR = os.path.join(BASE_DIR, "Output")
+MASTER_OUTPUT_DIR = os.path.join(BASE_DIR, "docs")
 os.makedirs(MASTER_OUTPUT_DIR, exist_ok=True)
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M")
 
-# Updated to use relative project paths
+# --- FIXED PATHS FOR GITHUB (NO TIMESTAMPS) ---
+# We use fixed names so we overwrite the old files and save space.
+OUT_HTML_INBOX  = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Inbox.html")
+OUT_HTML_UNIV   = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Universal.html")
+OUT_HTML_WATCH  = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Watchlist.html") 
+OUT_HTML_SECTOR = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Sector.html")
+OUT_HTML_FAV    = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Favorites_Tile.html") 
+OUT_CSV         = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Flagged.csv")
+OUT_TXT         = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Summary.txt")
 
-OUT_HTML_FAV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Favorites_Tile_{TIMESTAMP}.html") 
-OUT_CSV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Flagged_{TIMESTAMP}.csv")
-OUT_TXT = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Summary_{TIMESTAMP}.txt")
+# Move Cache outside of MASTER_OUTPUT_DIR (docs) to keep the website clean
+# BASE_DIR is the root of your project
+CACHE_DIR = os.path.join(BASE_DIR, "tb_cache")
+CHARTS_DIR = os.path.join(BASE_DIR, "charts")
 
-# Cache and Charts should also be relative
-CACHE_DIR = os.path.join(MASTER_OUTPUT_DIR, "tb_cache")
-CHARTS_DIR = os.path.join(MASTER_OUTPUT_DIR, "charts")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(CHARTS_DIR, exist_ok=True)
 
@@ -1584,4 +1590,5 @@ if __name__ == "__main__":
      print("Market closed — skipping run.")
      sys.exit(0)
     main()
+
 
