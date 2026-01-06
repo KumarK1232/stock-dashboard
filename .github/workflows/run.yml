@@ -18,7 +18,9 @@ jobs:
       - run: pip install -r requirements.txt
 
       - run: python TopBottomwithwatchlist_report_builder_39__FINAL.py
-
+        env:
+                EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+                EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       - run: |
           git config --global user.name "auto-bot"
           git config --global user.email "bot@github.com"
