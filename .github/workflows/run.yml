@@ -5,7 +5,6 @@ on:
     - cron: "0 * * * *" # Runs every hour
   workflow_dispatch:   # Allows manual run
 
-# This is the CRITICAL fix for the 403 error
 permissions:
   contents: write
 
@@ -16,7 +15,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # This ensures the bot uses the correct token to push changes
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
@@ -39,7 +37,13 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          # The '|| echo' prevents the workflow from failing if there are no data changes
+          
+          # 1. Force remove any accidental large files from the Git index
+          git rm -r --cached Output/ cache/ tb_cache/ || echo "Folders already cleared"
+          
+          # 2. ONLY add the docs folder (your website)
+          git add docs/
+          
+          # 3. Commit and Push
           git commit -m "Auto update dashboard: $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push
