@@ -1,0 +1,27 @@
+name: Auto Update Stock Dashboard
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - run: pip install -r requirements.txt
+
+      - run: python TopBottomwithwatchlist_report_builder_39__FINAL.py
+
+      - run: |
+          git config --global user.name "auto-bot"
+          git config --global user.email "bot@github.com"
+          git add .
+          git commit -m "Auto update dashboard" || echo "No changes"
+          git push
