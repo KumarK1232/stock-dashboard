@@ -2,28 +2,44 @@ name: Auto Update Stock Dashboard
 
 on:
   schedule:
-    - cron: "0 * * * *"
-  workflow_dispatch:
+    - cron: "0 * * * *" # Runs every hour
+  workflow_dispatch:   # Allows manual run
+
+# This is the CRITICAL fix for the 403 error
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # This ensures the bot uses the correct token to push changes
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - run: python TopBottomwithwatchlist_report_builder_39__FINAL.py
+      - name: Run Stock Report Script
+        run: python TopBottomwithwatchlist_report_builder_39__FINAL.py
         env:
-                EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
-                EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-      - run: |
-          git config --global user.name "auto-bot"
-          git config --global user.email "bot@github.com"
+          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Auto update dashboard" || echo "No changes"
+          # The '|| echo' prevents the workflow from failing if there are no data changes
+          git commit -m "Auto update dashboard: $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push
