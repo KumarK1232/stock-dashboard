@@ -39,17 +39,23 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 1. Pull the latest from GitHub to prevent the 'rejected' error
+          # 1. Take the new HTML files and put them in a 'waiting area' (stash)
+          git add docs/
+          git stash
+
+          # 2. Now that the workspace is 'clean', we can sync with GitHub
           git pull origin main --rebase
 
-          # 2. Stop tracking folders that cause size/conflict issues
+          # 3. Bring the new HTML files back from the waiting area
+          git stash pop || echo "No changes to restore"
+          
+          # 4. Clean up tracking for old/unwanted folders
           git rm -r --cached Output/ cache/ tb_cache/ __pycache__/ || echo "Already clean"
           
-          # 3. Add ONLY the website folder and your scripts
+          # 5. Add the final files
           git add docs/
           git add TopBottomwithwatchlist_report_builder_39__FINAL.py
           
-          # 4. Commit and Push with Force
-          # We use || exit 0 so it doesn't mark the job as 'failed' if there is nothing new to upload
+          # 6. Commit and Force Push
           git commit -m "Auto update dashboard: $(date +'%Y-%m-%d %H:%M')" || exit 0
           git push origin main --force
