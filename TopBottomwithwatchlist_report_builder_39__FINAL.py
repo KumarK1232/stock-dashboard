@@ -113,7 +113,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
-UNIVERSE_LIMIT = 100
+UNIVERSE_LIMIT = 300
 EAGER_RENDER_FIRST_N = 18
 THREADS = 25
 REQUEST_TIMEOUT = 20
@@ -1590,5 +1590,6 @@ if __name__ == "__main__":
      print("Market closed — skipping run.")
      sys.exit(0)
     main()
+
 
 
