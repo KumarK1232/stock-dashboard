@@ -1,4 +1,6 @@
 pandas
 numpy
 yfinance
-pandas_market_calendars
+beautifulsoup4
+pandas-market-calendars
+openpyxl
