@@ -60,7 +60,7 @@ SCRIPT_VERSION = "vFinal26-AutoImport"
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
 SENDER_EMAIL = "stockusals@gmail.com"
-INBOX_LOOKBACK_DAYS = 4
+INBOX_LOOKBACK_DAYS = 1
 
 # --- PRICE TREND CONFIG ---
 PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
@@ -79,10 +79,7 @@ os.makedirs(MASTER_OUTPUT_DIR, exist_ok=True)
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M")
 
 # Updated to use relative project paths
-OUT_HTML_INBOX = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Inbox_{TIMESTAMP}.html")
-OUT_HTML_UNIV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Universal_{TIMESTAMP}.html")
-OUT_HTML_WATCH = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Watchlist_{TIMESTAMP}.html") 
-OUT_HTML_SECTOR = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Sector_{TIMESTAMP}.html")
+
 OUT_HTML_FAV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Favorites_Tile_{TIMESTAMP}.html") 
 OUT_CSV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Flagged_{TIMESTAMP}.csv")
 OUT_TXT = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Summary_{TIMESTAMP}.txt")
@@ -110,7 +107,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
-UNIVERSE_LIMIT = 400
+UNIVERSE_LIMIT = 100
 EAGER_RENDER_FIRST_N = 18
 THREADS = 25
 REQUEST_TIMEOUT = 20
@@ -119,8 +116,8 @@ XLSX_JS_FILE = "xlsx.full.min.js"
 
 INTRADAY_INTERVAL = "5m"
 INTRADAY_DAYS = 8
-DAILY_LOOKBACK_DAYS = 365
-WEEKLY_LOOKBACK_DAYS = 730 
+DAILY_LOOKBACK_DAYS = 180
+WEEKLY_LOOKBACK_DAYS = 365 
 RSI_PERIOD = 14
 BB_PERIOD = 20
 BB_STD = 2.0
@@ -1587,3 +1584,4 @@ if __name__ == "__main__":
      print("Market closed — skipping run.")
      sys.exit(0)
     main()
+
