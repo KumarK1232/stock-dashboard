@@ -23,12 +23,7 @@ import os
 import pandas as pd
 import sys
 import pandas_market_calendars as mcal
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "docs")
-CACHE_DIR = os.path.join(BASE_DIR, "cache")
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(CACHE_DIR, exist_ok=True)
 
 try:
     import pandas as pd
@@ -39,7 +34,12 @@ except ImportError:
     print("CRITICAL ERROR: Missing libraries.")
     print("Run: pip install pandas numpy beautifulsoup4 lxml openpyxl python-dateutil")
     sys.exit(1)
+# This adds the folder where the script lives to the Python path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
 
+# Now try the import
 try:
     from bs4 import BeautifulSoup
 except ImportError:
@@ -66,25 +66,49 @@ INBOX_LOOKBACK_DAYS = 4
 PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
 # --------------------------------------------
 
-MASTER_OUTPUT_DIR = os.path.normpath("C:/Python/Getstart/TDSTATION/Output")
+# ... (Keep all your imports at the top)
+
+# -------------------- UPDATED PATHS FOR GITHUB --------------------
+# This uses the script's location as the base, making it "portable"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Create a "Output" folder inside your project directory if it doesn't exist
+MASTER_OUTPUT_DIR = os.path.join(BASE_DIR, "Output")
+os.makedirs(MASTER_OUTPUT_DIR, exist_ok=True)
+
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M")
-OUT_HTML_INBOX = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Inbox_{TIMESTAMP}.html") # <--- ADD THIS LINE
+
+# Updated to use relative project paths
+OUT_HTML_INBOX = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Inbox_{TIMESTAMP}.html")
 OUT_HTML_UNIV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Universal_{TIMESTAMP}.html")
 OUT_HTML_WATCH = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Watchlist_{TIMESTAMP}.html") 
 OUT_HTML_SECTOR = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Sector_{TIMESTAMP}.html")
 OUT_HTML_FAV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Favorites_Tile_{TIMESTAMP}.html") 
 OUT_CSV = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Flagged_{TIMESTAMP}.csv")
 OUT_TXT = os.path.join(MASTER_OUTPUT_DIR, f"TopBottom_Summary_{TIMESTAMP}.txt")
+
+# Cache and Charts should also be relative
 CACHE_DIR = os.path.join(MASTER_OUTPUT_DIR, "tb_cache")
 CHARTS_DIR = os.path.join(MASTER_OUTPUT_DIR, "charts")
+os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(CHARTS_DIR, exist_ok=True)
 
-USE_WATCHLIST_EXCEL = True
-WATCHLIST_FILE = r"C:\Python\Getstart\TDSTATION\watchlist.xlsx" 
-FAVORITES_FILE = r"C:\Python\Getstart\TDSTATION\favorites.xlsx" 
+# Update Excel file locations to be relative to the script
+WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.xlsx") 
+FAVORITES_FILE = os.path.join(BASE_DIR, "favorites.xlsx") 
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, "docs")
+CACHE_DIR = os.path.join(BASE_DIR, "cache")
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
+# ... (Continue with the rest of your functions)
 
 # --- NEW: Define Downloads Folder ---
 # This attempts to find your default Windows Downloads folder
 DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
+USE_WATCHLIST_EXCEL = True
 
 UNIVERSE_LIMIT = 400
 EAGER_RENDER_FIRST_N = 18
