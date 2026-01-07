@@ -1,0 +1,868 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>TopBottom Favorites vFinal26-AutoImport — 2026-01-07 17:47:57</title>
+<style>:root {
+  --primary: #0b5fff;
+  --muted: #6b7280;
+  --card: #fff;
+  --bg: #f6f8fb;
+}
+body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Roboto, Arial;
+  background: var(--bg);
+  color: #0b2545;
+}
+.top-toolbar {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 60;
+  padding: 10px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  box-shadow: 0 6px 18px rgba(11, 37, 95, 0.06);
+  flex-wrap: wrap;
+}
+.brand {
+  font-weight: 700;
+  color: var(--primary);
+  margin-right: 6px;
+  white-space: nowrap;
+}
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.btn {
+  background: #fff;
+  border: 1px solid #e6eefc;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(11, 37, 95, 0.04);
+}
+.btn.primary {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+}
+.btn.ghost {
+  background: transparent;
+  border: 1px solid #e6eefc;
+  color: var(--primary);
+}
+.filter-area {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.active {
+  background: var(--primary) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+.container {
+  padding: 18px;
+  max-width: 1400px;
+  margin: 12px auto;
+}
+.card {
+  background: var(--card);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 10px 30px rgba(11, 37, 95, 0.03);
+}
+#no_results_msg {
+    display: none; /* Hidden by default */
+    color: var(--muted);
+    text-align: center;
+    padding: 30px;
+    font-size: 1.1rem;
+}
+.header-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.badge {
+  background: #eef2ff;
+  color: var(--primary);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  margin: 2px 4px 2px 0;
+  display: inline-block;
+  font-size: 0.8rem;
+}
+.signal_card {
+  margin-bottom: 10px;
+  border-left: 4px solid transparent;
+  padding: 8px;
+}
+.signal_card[data-tags*="INTRADAY_TOP"],
+.signal_card[data-tags*="DAILY_TOP"],
+.signal_card[data-tags*="RECENT_WEEKLY_TOP"] {
+  border-left-color: #ef4444;
+}
+.signal_card[data-tags*="INTRADAY_BOTTOM"],
+.signal_card[data-tags*="DAILY_BOTTOM"],
+.signal_card[data-tags*="RECENT_WEEKLY_BOTTOM"] {
+  border-left-color: #10b981;
+}
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+@media (min-width: 980px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.status {
+  font-size: 13px;
+  color: #374151;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.chart-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.chart-table {
+  margin-top: 8px;
+  border-radius: 6px;
+  border: 1px solid #eef2ff;
+  padding: 8px;
+  background: #fbfdff;
+  max-height: 340px;
+  overflow: auto;
+  font-family: monospace;
+  font-size: 12px;
+}
+.footer-small {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 12px;
+}</style>
+<style>
+    :root {
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --text-color: #2d3748;
+        --text-muted: #718096;
+        --text-dark: #1a202c;
+        --bg-color: #f7fafc;
+        --bg-white: #ffffff;
+        --border-color: #e2e8f0;
+        --green-500: #2f855a;
+        --green-100: #f0fff4;
+        --green-border: #c6f6d5;
+        --red-500: #c53030;
+        --red-100: #fff5f5;
+        --red-border: #fecaca;
+        --primary: #007bff;
+    }
+    body {
+        font-family: var(--font-sans);
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        margin: 0;
+        padding-top: 70px; /* Room for fixed toolbar */
+    }
+    .container {
+        width: 100%;
+        max-width: 95%;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        box-sizing: border-box;
+    }
+    .card {
+        background: var(--bg-white);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
+        margin-bottom: 1rem;
+    }
+    h3 {
+        font-size: 1.5rem;
+        color: var(--text-dark);
+        margin: 1.5rem 0 1rem 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    /* --- Tile Grid --- */
+    .tile-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 1.25rem;
+    }
+    
+    .stock-tile {
+        background-color: var(--bg-white);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: row;
+        box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05);
+        transition: all 0.2s ease-in-out;
+    }
+    .stock-tile:hover {
+        box-shadow: 0 4px 12px 0 rgba(0,0,0,0.08);
+        transform: translateY(-2px);
+    }
+    
+    .tile-border {
+        flex-shrink: 0;
+        width: 6px;
+    }
+    .tile-border-green { background-color: var(--green-500); }
+    .tile-border-red { background-color: var(--red-500); }
+    
+    .tile-content {
+        padding: 16px;
+        width: 100%;
+    }
+    
+    /* Header */
+    .tile-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+    .tile-header-left {
+        display: flex;
+        flex-direction: column;
+    }
+    .tile-ticker {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        line-height: 1;
+        margin: 0;
+    }
+    .tile-category {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+    
+    .tile-header-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+    .change-pill {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1;
+    }
+    .change-pill-green {
+        background-color: var(--green-100);
+        color: var(--green-500);
+        border: 1px solid var(--green-border);
+    }
+    .change-pill-red {
+        background-color: var(--red-100);
+        color: var(--red-500);
+        border: 1px solid var(--red-border);
+    }
+    
+    /* Body */
+    .tile-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+    .tile-stat {
+        display: flex;
+        flex-direction: column;
+    }
+    .stat-label {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+    .stat-value {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-dark);
+    }
+    .stat-value-small {
+        font-size: 1rem;
+        font-weight: 500;
+        color: var(--text-color);
+    }
+    
+    /* Price Changes Table */
+    .price-changes {
+        font-size: 0.875rem;
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.25rem;
+    }
+    .price-changes th, .price-changes td {
+        text-align: center;
+        padding: 8px;
+        color: var(--text-muted);
+        border: 1px solid var(--border-color);
+    }
+    .price-changes th {
+        font-weight: 600;
+        background-color: #fdfdfd;
+    }
+    
+    /* 52-Week Range */
+    .week-range {
+        width: 100%;
+    }
+    .week-range-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-dark);
+        margin-bottom: 6px;
+    }
+    .week-range-bar-outer {
+        height: 10px;
+        width: 100%;
+        background-color: var(--border-color);
+        border-radius: 5px;
+        position: relative;
+        overflow: hidden;
+    }
+    .week-range-bar-inner {
+        height: 100%;
+        background-color: var(--text-muted);
+        border-radius: 5px 0 0 5px;
+        position: relative;
+    }
+    .week-range-bar-inner::after { /* Current price indicator */
+        content: '';
+        display: block;
+        width: 3px;
+        height: 14px; /* Taller than bar */
+        background-color: var(--text-dark);
+        position: absolute;
+        right: -1px; /* At the end of the inner bar */
+        top: -2px; /* Centered */
+    }
+    
+    /* --- Toolbar (Copied) --- */
+    .top-toolbar {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+        background: var(--bg-white);
+        border-bottom: 1px solid var(--border-color);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        padding: 0 1rem;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        color: var(--text-dark);
+    }
+    .brand { font-size: 1.25rem; font-weight: 700; }
+    .controls { display: flex; align-items: center; gap: 8px; margin-left: 1.5rem; }
+    .btn {
+        display: inline-block;
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 0.875rem;
+        text-decoration: none;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--bg-white);
+        color: var(--text-color);
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .btn:hover { background-color: #f7fafc; }
+    .btn.primary { background-color: var(--primary); color: white; border-color: var(--primary); }
+    .btn.ghost { background: transparent; border: 1px solid transparent; }
+    .btn.ghost:hover { background: #f7fafc; border-color: var(--border-color); }
+    .footer-small {
+        text-align: center;
+        padding: 20px;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+    </style>
+</head><body>
+<div class='top-toolbar'><div class='brand'>TopBottom — vFinal26-AutoImport</div>
+<div class='controls'>
+<a href='TopBottom_Universal.html' class='btn ghost'>🌐 Universal</a>
+<a href='TopBottom_Watchlist.html' class='btn ghost'>⭐ Watchlist</a>
+<a href='TopBottom_Sector.html' class='btn ghost'>📊 Sector</a>
+<button class='btn primary'>❤️ Favorites</button>
+</div>
+<div style='margin-left:auto;display:flex;gap:8px;align-items:center'>
+<button class='btn' onclick='exportFavorites()'>📤 Export Favorites</button>
+<button class='btn' onclick='window.location.reload()'>🔄 Refresh</button>
+</div></div>
+<div class='container'>
+<h3>Sheet1 (1)</h3>
+<div class='tile-grid'>
+<div class='stock-tile'>
+  <div class='tile-border tile-border-green'></div>
+  <div class='tile-content'>
+    <div class='tile-header'>
+      <div class='tile-header-left'>
+        <a href='https://finviz.com/quote.ashx?t=CL=F&p=d' target='_blank' style='text-decoration:none;'><h2 class='tile-ticker'>CL=F</h2></a>
+        <div class='tile-category'>Category: None</div>
+      </div>
+      <div class='tile-header-right'>
+        <div class='change-pill change-pill-green'>
+          Overall Change ▲ 0.00%
+        </div>
+        <div class='stat-label' style='margin-top: 4px;'>Daily: -1.37%</div>
+      </div>
+    </div>
+    <div class='tile-body'>
+      <div class='tile-stat'>
+        <div class='stat-label'>Today's Price</div>
+        <div class='stat-value'>$57.52</div>
+      </div>
+      <div class='tile-stat'>
+        <div class='stat-label'>Market Cap</div>
+        <div class='stat-value'>N/A</div>
+      </div>
+      <div class='tile-stat'>
+        <div class='stat-label'>Entry Price</div>
+        <div class='stat-value stat-value-small'>$57.52</div>
+      </div>
+      <div class='tile-stat'>
+        <div class='stat-label'>Entry Date</div>
+        <div class='stat-value stat-value-small'>2026-01-06</div>
+      </div>
+    </div>
+    <div class='stat-label'>Price Change (Trends)</div>
+    <table class='price-changes'>
+      <tr><th>3D</th><th>5D</th><th>7D</th><th>9D</th><th>15D</th><th>30D</th><th>60D</th><th>90D</th></tr>
+      <tr><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>
+    </table>
+    <div class='week-range'>
+      <div class='week-range-labels'>
+        <span>$55.27</span>
+        <span>52-Week Range (Top/Bottom)</span>
+        <span>$80.04</span>
+      </div>
+      <div class='week-range-bar-outer'>
+        <div class='week-range-bar-inner' style='width: 9.083568665396538%;'></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+<div class='footer-small'>Generated by TopBottom_Universe vFinal26-AutoImport — 2026-01-07 17:47:57</div>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'></script>
+<script>window._tb_chart_payloads = window._tb_chart_payloads || {};
+
+// Charting functions
+function candleTrace(obj, name) {
+  return {
+    x: obj.labels,
+    open: obj.open,
+    high: obj.high,
+    low: obj.low,
+    close: obj.close,
+    type: "candlestick",
+    name: name,
+    increasing: { line: { color: "#0b9444" } },
+    decreasing: { line: { color: "#ef4444" } },
+  };
+}
+function lineTrace(x, y, name, dash) {
+  return {
+    x: x,
+    y: y,
+    mode: "lines",
+    name: name,
+    line: { dash: dash || "solid", width: 1 },
+  };
+}
+function markersScatter(x, y, color, name, size) {
+  return {
+    x: x,
+    y: y,
+    mode: "markers+text",
+    name: name,
+    marker: { color: color, size: size, symbol: "circle" },
+    text: y.map((v) => (v ? "$" + parseFloat(v).toFixed(2) : "")),
+    textposition: "top center",
+  };
+}
+
+function renderChartForPayload(div_id, obj) {
+  var node = document.getElementById(div_id);
+  if (!node) return;
+  try {
+    node.setAttribute("data-rendered", "0");
+    if (!obj || !obj.data || !obj.data.labels || obj.data.labels.length === 0) {
+      node.innerHTML = '<div style="padding:12px;color:#666">No data</div>';
+      node.setAttribute("data-rendered", "1");
+      return;
+    }
+    // build traces
+    var traces = [candleTrace(obj.data, "Candles")];
+    if (obj.data.bb_upper && obj.data.bb_upper.length === obj.data.labels.length) {
+      traces.push(lineTrace(obj.data.labels, obj.data.bb_upper, "BB Upper", "dot"));
+      traces.push(lineTrace(obj.data.labels, obj.data.bb_mid, "BB Mid", "dash"));
+      traces.push(lineTrace(obj.data.labels, obj.data.bb_lower, "BB Lower", "dot"));
+    }
+    // markers
+    if (obj.markers && obj.markers.length > 0) {
+      var xp = [],
+        yp = [],
+        xt = [],
+        yt = [];
+      obj.markers.forEach(function (m) {
+        if (
+          typeof m.pos === "number" &&
+          m.pos >= 0 &&
+          m.pos < obj.data.labels.length
+        ) {
+          var xlbl = obj.data.labels[m.pos];
+          var price = m.price;
+          if (m.type === "peak") {
+            xp.push(xlbl);
+            yp.push(price);
+          } else if (m.type === "trough") {
+            xt.push(xlbl);
+            yt.push(price);
+          }
+        }
+      });
+      if (xp.length) {
+        traces.push(markersScatter(xp, yp, "#ef4444", "Tops", 12));
+      }
+      if (xt.length) {
+        traces.push(markersScatter(xt, yt, "#10b981", "Bottoms", 12));
+      }
+    }
+    
+    var layout = {
+      margin: { t: 8, b: 28, l: 40, r: 16 },
+      xaxis: { rangeslider: { visible: false } },
+      legend: { orientation: "h" },
+      height: %HEIGHT%, // Templated height
+    };
+    Plotly.newPlot(div_id, traces, layout, {
+      displayModeBar: false,
+      responsive: true,
+    });
+    node.setAttribute("data-rendered", "1");
+  } catch (err) {
+    try {
+      node.innerHTML =
+        '<div style="padding:12px;color:#900">Chart render failed: ' +
+        (err && err.message ? err.message : String(err)) +
+        "</div>";
+      node.setAttribute("data-rendered", "1");
+    } catch (e) {}
+    console.log("renderChartForPayload error", err);
+  }
+}
+
+// Lazy-load charts on scroll
+function autoRenderAll() {
+  var payloads = window._tb_chart_payloads || {};
+  var ids = Object.keys(payloads);
+  // Eager load first N
+  for (var i = 0; i < ids.length && i < %EAGER%; i++) {
+    try {
+      renderChartForPayload(ids[i], payloads[ids[i]]);
+    } catch (e) {}
+  }
+  // Lazy load the rest
+  if ("IntersectionObserver" in window) {
+    var obs = new IntersectionObserver(
+      function (entries, o) {
+        entries.forEach(function (ent) {
+          if (ent.isIntersecting) {
+            var id = ent.target.id;
+            if (id && window._tb_chart_payloads && window._tb_chart_payloads[id])
+              try {
+                renderChartForPayload(id, window._tb_chart_payloads[id]);
+              } catch (e) {}
+            o.unobserve(ent.target);
+          }
+        });
+      },
+      { root: null, rootMargin: "200px", threshold: 0.05 }
+    );
+    ids.forEach(function (id) {
+      var n = document.getElementById(id);
+      if (n && n.getAttribute("data-rendered") !== "1") obs.observe(n);
+    });
+  } else {
+    // Fallback for older browsers
+    ids.forEach(function (id) {
+      var n = document.getElementById(id);
+      if (n && n.getAttribute("data-rendered") !== "1")
+        try {
+          renderChartForPayload(id, window._tb_chart_payloads[id]);
+        } catch (e) {}
+    });
+  }
+}
+
+// --- Filters: multi-select AND logic (FIXED) ---
+let activeFilters = [];
+function toggleTagButton(btn, tag) {
+  try {
+    var el =
+      btn instanceof HTMLElement
+        ? btn
+        : document.querySelector('[data-filter="' + tag + '"]');
+    if (!el) el = btn;
+    var idx = activeFilters.indexOf(tag);
+    if (idx === -1) {
+      activeFilters.push(tag);
+      el.classList.add("active");
+    } else {
+      activeFilters.splice(idx, 1);
+      el.classList.remove("active");
+    }
+    applyCombinedFilter();
+    updateStatus();
+  } catch (e) {
+    console.log("toggleTagButton error", e);
+  }
+}
+
+function applyCombinedFilter() {
+  var allCards = Array.from(document.querySelectorAll(".signal_card"));
+  var noResultsMsg = document.getElementById("no_results_msg");
+  var visibleCount = 0;
+
+  if (activeFilters.length === 0) {
+    allCards.forEach(function (c) {
+      c.style.display = "block";
+      visibleCount++;
+    });
+  } else {
+    allCards.forEach(function (c) {
+      var tags = (c.dataset.tags || "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter((x) => x);
+      
+      // AND logic: .every()
+      var ok = activeFilters.every(function (f) {
+        return tags.indexOf(f) !== -1;
+      });
+
+      c.style.display = ok ? "block" : "none";
+      if (ok) visibleCount++;
+    });
+  }
+
+  // Show/hide "No results" message
+  if (noResultsMsg) {
+    noResultsMsg.style.display = visibleCount === 0 ? "block" : "none";
+  }
+}
+
+function updateStatus() {
+  var st = document.getElementById("statusMsg");
+  if (!st) return;
+  st.textContent =
+    "Mode: " +
+    (document.getElementById("modeSelect")
+      ? document.getElementById("modeSelect").value
+      : "STRICT") +
+    (activeFilters.length
+      ? " • Filters: " + activeFilters.join(", ")
+      : " • Filters: none");
+}
+
+function filterGroup(mode) {
+  var noResultsMsg = document.getElementById("no_results_msg");
+  if (noResultsMsg) noResultsMsg.style.display = "none"; // Hide on reset
+
+  if (mode === "ALL") {
+    activeFilters = [];
+    document
+      .querySelectorAll("[data-filter]")
+      .forEach((b) => b.classList.remove("active"));
+    applyCombinedFilter();
+    updateStatus();
+    return;
+  }
+  // This function is for single-tag toggling, which is what the buttons do
+  toggleTagButton(
+    document.querySelector('[data-filter="' + mode + '"]'),
+    mode
+  );
+}
+
+// --- Toggle Table (FIXED) ---
+function toggleTable(div_id) {
+  var tableDiv = document.getElementById(div_id + "_table");
+  if (!tableDiv) return;
+  if (tableDiv.style.display === "block") {
+    tableDiv.style.display = "none";
+    return;
+  }
+  
+  // Read from 'tableData' key instead of 'last30'
+  var payload = window._tb_chart_payloads && window._tb_chart_payloads[div_id];
+  if (
+    !payload ||
+    !payload.tableData ||
+    !payload.tableData.labels ||
+    payload.tableData.labels.length === 0
+  ) {
+    tableDiv.innerHTML =
+      '<div style="padding:12px;color:#666">No table data available</div>';
+    tableDiv.style.display = "block";
+    return;
+  }
+
+  var html =
+    '<table style="width:100%;border-collapse:collapse;"><thead><tr><th>Date</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Vol</th></tr></thead><tbody>';
+  
+  var L = payload.tableData.labels.length;
+  // We read all rows from tableData (it's already pre-sliced in Python)
+  for (var i = 0; i < L; i++) {
+    var d = payload.tableData.labels[i];
+    var o =
+      payload.tableData.open && payload.tableData.open[i] !== null
+        ? payload.tableData.open[i]
+        : "";
+    var h =
+      payload.tableData.high && payload.tableData.high[i] !== null
+        ? payload.tableData.high[i]
+        : "";
+    var l =
+      payload.tableData.low && payload.tableData.low[i] !== null
+        ? payload.tableData.low[i]
+        : "";
+    var c =
+      payload.tableData.close && payload.tableData.close[i] !== null
+        ? payload.tableData.close[i]
+        : "";
+    var v =
+      payload.tableData.volume && payload.tableData.volume[i] !== null
+        ? payload.tableData.volume[i]
+        : "";
+
+    html +=
+      '<tr style="border-top:1px solid #eef2ff"><td style="padding:6px">' +
+      d +
+      '</td><td style="padding:6px">' +
+      (o ? "$" + parseFloat(o).toFixed(2) : "n/a") +
+      '</td><td style="padding:6px">' +
+      (h ? "$" + parseFloat(h).toFixed(2) : "n/a") +
+      '</td><td style="padding:6px">' +
+      (l ? "$" + parseFloat(l).toFixed(2) : "n/a") +
+      '</td><td style="padding:6px">' +
+      (c ? "$" + parseFloat(c).toFixed(2) : "n/a") +
+      '</td><td style="padding:6px">' +
+      v +
+      "</td></tr>";
+  }
+  html += "</tbody></table>";
+  tableDiv.innerHTML = html;
+  tableDiv.style.display = "block";
+}
+
+// --- Other Controls ---
+
+// CSV download
+function downloadCSV() {
+  var rows = [];
+  document.querySelectorAll(".signal_card").forEach(function (c) {
+    if (c.style.display === "none") return; // Only download visible
+    rows.push({
+      ticker: c.dataset.ticker || "",
+      tags: c.dataset.tags || "",
+    });
+  });
+  if (rows.length === 0) {
+    alert("No visible rows to download. Clear filters to download all.");
+    return;
+  }
+  var csv = "ticker,tags\n";
+  rows.forEach(function (r) {
+    csv += r.ticker + "," + '"' + r.tags + '"' + "\n";
+  });
+  var blob = new Blob([csv], { type: "text/csv" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "TopBottom_filtered.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// manual refresh
+function manualRefresh() {
+  window.location.reload();
+}
+
+// auto-refresh
+var _autoRefreshHandle = null;
+function toggleAutoRefresh(enabled) {
+  if (enabled) {
+    var mins = %REF%;
+    if (_autoRefreshHandle) clearInterval(_autoRefreshHandle);
+    _autoRefreshHandle = setInterval(function () {
+      window.location.reload();
+    }, mins * 60 * 1000);
+    alert("Auto-refresh enabled: every " + mins + " minutes");
+  } else {
+    if (_autoRefreshHandle) clearInterval(_autoRefreshHandle);
+    _autoRefreshHandle = null;
+    alert("Auto-refresh disabled");
+  }
+}
+
+// mode set
+function setMode(v) {
+  // Mode selection is just for show, not tied to logic currently
+  updateStatus();
+}
+
+// On page load
+document.addEventListener("DOMContentLoaded", function () {
+  try {
+    document.getElementById("modeSelect").value = "STRICT";
+    setMode("STRICT");
+  } catch (e) {}
+  setTimeout(autoRenderAll, 450); // Start rendering charts
+});</script>
+</body></html>
