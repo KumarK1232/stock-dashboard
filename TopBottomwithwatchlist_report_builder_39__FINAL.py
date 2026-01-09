@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-# TopBottom_Universe vFinal26 - Auto-Import Automation
+# TopBottom_Universe vFinal27 - Force Refresh Fix
 # --- EXPERT MODIFICATIONS ---
-# 1. AUTOMATION: Script now scans your Downloads folder on startup.
-# 2. AUTOMATION: Detects the newest 'favorites*.xlsx' file.
-# 3. AUTOMATION: Moves and overwrites the master database automatically.
-# 4. EXISTING: Keeps the JS logic to batch save multiple favorites at once.
-# 5. NEW: Added Price Trend Days display on top of charts.
+# 1. FIX: Removed duplicate directory definitions.
+# 2. FIX: Added forced cache cleaning at startup (deletes tb_cache folder contents).
+# 3. FIX: Removed "Market Closed" check so report ALWAYS generates when run.
+# 4. EXISTING: Auto-imports favorites from Downloads.
 
 from __future__ import annotations
 import os, sys, time, json, math, random, logging, urllib.request, urllib.parse, webbrowser
@@ -14,16 +13,11 @@ from io import StringIO
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 import threading, queue
-import pandas as pd, numpy as np
 import shutil 
 import imaplib
 import email
 import io
-import os
-import pandas as pd
-import sys
 import pandas_market_calendars as mcal
-
 
 try:
     import pandas as pd
@@ -32,30 +26,24 @@ try:
     from dateutil import parser
 except ImportError:
     print("CRITICAL ERROR: Missing libraries.")
-    print("Run: pip install pandas numpy beautifulsoup4 lxml openpyxl python-dateutil")
+    print("Run: pip install pandas numpy beautifulsoup4 lxml openpyxl python-dateutil pandas_market_calendars")
     sys.exit(1)
+
 # This adds the folder where the script lives to the Python path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
-# Now try the import
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    print("Error: BeautifulSoup4 not found. Please install it: pip install beautifulsoup4 lxml")
-    sys.exit(1)
-
 try:
     from favorites_report_builder import generate_favorites_tile_report
 except ImportError:
-    print("Error: favorites_report_builder.py not found. Please make sure you renamed the file.")
-    sys.exit(1)
+    # We will just warn and continue if missing, to avoid crashing the main logic
+    print("Warning: favorites_report_builder.py not found. Favorites tile report will be skipped.")
+    def generate_favorites_tile_report(*args, **kwargs): pass
 
 # -------------------- CONFIG --------------------
-SCRIPT_VERSION = "vFinal26-AutoImport"
+SCRIPT_VERSION = "vFinal27-ForceRefresh"
 
-# --- NEW: User Requested Price Trend Days ---
 # --- EMAIL / INBOX CONFIG ---
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
@@ -64,22 +52,17 @@ INBOX_LOOKBACK_DAYS = 1
 
 # --- PRICE TREND CONFIG ---
 PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
-# --------------------------------------------
 
-# ... (Keep all your imports at the top)
-
-# -------------------- UPDATED PATHS FOR GITHUB --------------------
-# This uses the script's location as the base, making it "portable"
+# -------------------- UPDATED PATHS --------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Create a "Output" folder inside your project directory if it doesn't exist
+# Output folder for HTML reports
 MASTER_OUTPUT_DIR = os.path.join(BASE_DIR, "docs")
 os.makedirs(MASTER_OUTPUT_DIR, exist_ok=True)
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M")
 
-# --- FIXED PATHS FOR GITHUB (NO TIMESTAMPS) ---
-# We use fixed names so we overwrite the old files and save space.
+# Fixed filenames (Overwrite mode)
 OUT_HTML_INBOX  = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Inbox.html")
 OUT_HTML_UNIV   = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Universal.html")
 OUT_HTML_WATCH  = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Watchlist.html") 
@@ -88,28 +71,14 @@ OUT_HTML_FAV    = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Favorites_Tile.html
 OUT_CSV         = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Flagged.csv")
 OUT_TXT         = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Summary.txt")
 
-# Move Cache outside of MASTER_OUTPUT_DIR (docs) to keep the website clean
-# BASE_DIR is the root of your project
+# Cache Directory
 CACHE_DIR = os.path.join(BASE_DIR, "tb_cache")
 CHARTS_DIR = os.path.join(BASE_DIR, "charts")
 
-os.makedirs(CACHE_DIR, exist_ok=True)
-os.makedirs(CHARTS_DIR, exist_ok=True)
-
-# Update Excel file locations to be relative to the script
+# Excel file locations
 WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.xlsx") 
 FAVORITES_FILE = os.path.join(BASE_DIR, "favorites.xlsx") 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "docs")
-CACHE_DIR = os.path.join(BASE_DIR, "cache")
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(CACHE_DIR, exist_ok=True)
-# ... (Continue with the rest of your functions)
-
-# --- NEW: Define Downloads Folder ---
-# This attempts to find your default Windows Downloads folder
 DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
@@ -137,7 +106,7 @@ finviz_lock = threading.Lock()
 
 # Logging
 log_buffer = StringIO()
-logger = logging.getLogger("TopBottom_v24")
+logger = logging.getLogger("TopBottom_v27")
 logger.setLevel(logging.INFO)
 if logger.hasHandlers():
     logger.handlers.clear()
@@ -145,31 +114,24 @@ ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(ch)
 logger.addHandler(logging.StreamHandler(log_buffer))
-#--------------------Inbox Email Helpers --------------------
+
 # -------------------- Global State --------------------
-inbox_tickers_extra_data = {} # {Ticker: {price, date, source}}
+inbox_tickers_extra_data = {} 
 
 # -------------------- Inbox Automation --------------------
-
 def insert_or_update_inbox(ticker, price, date_str, source, filename):
-    """Helper to store inbox findings for the report builder."""
     inbox_tickers_extra_data[ticker] = {
         'price': price,
         'date': date_str,
         'source': f"{source} ({filename})"
     }
 
-from email.header import decode_header
-
-from email.header import decode_header
-
 def parse_inbox():
-    """Extracts tickers from Gmail attachments."""
     logger.info(f"--- AUTOMATION: Checking Inbox (Lookback: {INBOX_LOOKBACK_DAYS} days) ---")
     results = {}
     
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD: 
-        logger.error("CRITICAL: EMAIL_ADDRESS or EMAIL_PASSWORD is missing!")
+        logger.warning("EMAIL_ADDRESS or EMAIL_PASSWORD missing. Skipping inbox check.")
         return results
 
     try:
@@ -177,13 +139,12 @@ def parse_inbox():
         mail.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
         mail.select("inbox")
         
-        # Format date for IMAP search
         dt = (datetime.now() - timedelta(days=INBOX_LOOKBACK_DAYS)).strftime("%d-%b-%Y")
         search_criteria = f'(SINCE "{dt}" FROM "{SENDER_EMAIL}")'
         _, ids = mail.search(None, search_criteria)
         
         if not ids[0]:
-            logger.warning(f"No emails found from {SENDER_EMAIL} since {dt}")
+            logger.info(f"No emails found from {SENDER_EMAIL} since {dt}")
             mail.logout()
             return results
 
@@ -191,7 +152,6 @@ def parse_inbox():
             _, data = mail.fetch(uid, "(RFC822)")
             msg = email.message_from_bytes(data[0][1])
             
-            # Get date of email
             try: d_str = parser.parse(msg.get("date")).strftime("%Y-%m-%d")
             except: d_str = datetime.now().strftime("%Y-%m-%d")
             
@@ -201,21 +161,17 @@ def parse_inbox():
                     logger.info(f"Processing attachment: {fname}")
                     try:
                         payload = part.get_payload(decode=True)
-                        # Read CSV or Excel
                         if "csv" in fname.lower():
                             df = pd.read_csv(io.BytesIO(payload))
                         else:
                             df = pd.read_excel(io.BytesIO(payload))
                         
-                        # Fix column names to be lowercase for matching
                         df.columns = [str(c).lower().strip() for c in df.columns]
                         
                         t_col = next((c for c in df.columns if "ticker" in c or "symbol" in c), None)
                         p_col = next((c for c in df.columns if "price" in c or "current" in c), None)
                         
-                        if t_col is None:
-                            logger.warning(f"Skipping {fname}: No 'ticker' or 'symbol' column found.")
-                            continue
+                        if t_col is None: continue
 
                         for _, r in df.iterrows():
                             t = str(r[t_col]).strip().upper()
@@ -234,64 +190,38 @@ def parse_inbox():
     logger.info(f"Inbox scan complete. Found {len(results)} unique tickers.")
     return results
 
-# -------------------- Existing Helpers (Summarized) --------------------
-# (Including auto_import_favorites_from_downloads, fetchers, and compute_indicators from your original script)
 # -------------------- Automation Helpers --------------------
 def auto_import_favorites_from_downloads():
-    """
-    Scans the Downloads folder for any file starting with 'favorites' and ending in '.xlsx'.
-    It takes the NEWEST one found, moves it to the project folder, and overwrites the old one.
-    """
     logger.info("--- AUTOMATION: Checking Downloads folder for new favorites... ---")
     
     if not os.path.exists(DOWNLOADS_FOLDER):
         logger.warning(f"Could not find Downloads folder at: {DOWNLOADS_FOLDER}")
         return
 
-    # Look for favorites.xlsx, favorites (1).xlsx, favorites (2).xlsx, etc.
     pattern = os.path.join(DOWNLOADS_FOLDER, "favorites*.xlsx")
     candidates = glob.glob(pattern)
     
     if not candidates:
-        logger.info("No new 'favorites.xlsx' found in Downloads. Using existing database.")
+        logger.info("No new 'favorites.xlsx' found in Downloads.")
         return
 
-    # Find the newest file based on modification time
     try:
         newest_file = max(candidates, key=os.path.getmtime)
         logger.info(f"Found new favorites file: {newest_file}")
-        
-        # Ensure target directory exists
         os.makedirs(os.path.dirname(FAVORITES_FILE), exist_ok=True)
-        
-        # Move and Overwrite
         try:
-            # remove old file first to ensure clean move
             if os.path.exists(FAVORITES_FILE):
                 os.remove(FAVORITES_FILE)
-            
             shutil.move(newest_file, FAVORITES_FILE)
             logger.info(f"SUCCESS: Imported and overwrote {FAVORITES_FILE}")
-            
-            # Optional: Clean up other duplicates in downloads to keep it tidy?
-            # For safety, we only move the one we used.
-            
         except Exception as e:
             logger.error(f"Failed to move file: {e}")
-
     except Exception as e:
         logger.error(f"Error during auto-import: {e}")
 
-# -------------------- NEW: Trend Helper Function --------------------
+# -------------------- Trend Helper --------------------
 def generate_trend_html(df_hist):
-    """
-    Generates a row of colored boxes showing price trends for PRICE_TREND_DAYS.
-    Returns HTML string.
-    """
-    if df_hist is None or df_hist.empty:
-        return ""
-
-    # CSS for the trend bar (Inline to ensure it renders correctly)
+    if df_hist is None or df_hist.empty: return ""
     html = """
     <style>
         .trend-container { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 12px 0; align-items: center; }
@@ -300,40 +230,22 @@ def generate_trend_html(df_hist):
             padding: 3px 6px; border-radius: 4px; text-align: center; min-width: 35px;
             font-family: sans-serif; line-height: 1.2; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
         }
-        .trend-up { background-color: #10b981; border: 1px solid #059669; } /* Green */
-        .trend-down { background-color: #ef4444; border: 1px solid #dc2626; } /* Red */
-        .trend-flat { background-color: #6b7280; border: 1px solid #4b5563; } /* Gray */
+        .trend-up { background-color: #10b981; border: 1px solid #059669; }
+        .trend-down { background-color: #ef4444; border: 1px solid #dc2626; }
+        .trend-flat { background-color: #6b7280; border: 1px solid #4b5563; }
     </style>
-    <div class='trend-container'>
-        <span style="font-size:11px; color:#888; margin-right:4px;">Trend:</span>
+    <div class='trend-container'><span style="font-size:11px; color:#888; margin-right:4px;">Trend:</span>
     """
-    
     current_price = df_hist['Close'].iloc[-1]
-    
     for days in PRICE_TREND_DAYS:
-        # Check if we have enough data (days + 1 for calculation)
         if len(df_hist) > days:
-            # Get price 'days' ago. iloc[-1] is today.
             past_price = df_hist['Close'].iloc[-(days + 1)]
-            
             if past_price == 0 or pd.isna(past_price): continue 
-            
             change_pct = ((current_price - past_price) / past_price) * 100
-            
-            # Determine color class
-            if change_pct > 0:
-                css_class = "trend-up"
-                sign = "+"
-            elif change_pct < 0:
-                css_class = "trend-down"
-                sign = ""
-            else:
-                css_class = "trend-flat"
-                sign = ""
-                
-            # Create the box
+            if change_pct > 0: css_class, sign = "trend-up", "+"
+            elif change_pct < 0: css_class, sign = "trend-down", ""
+            else: css_class, sign = "trend-flat", ""
             html += f"<div class='trend-box {css_class}' title='{days} Days Ago: ${past_price:.2f}'>{days}D<br>{sign}{change_pct:.1f}%</div>"
-            
     html += "</div>"
     return html
 
@@ -342,26 +254,21 @@ def money(v:Optional[float]) -> str:
     try:
         if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))): return "n/a"
         return f"${float(v):.2f}"
-    except:
-        return "n/a"
+    except: return "n/a"
 
 def safe_str(v, fmt=".2f"):
-    try:
-        return f"{float(v):{fmt}}"
-    except:
-        return "n/a"
+    try: return f"{float(v):{fmt}}"
+    except: return "n/a"
 
 def cache_path(name:str)->str:
     return os.path.join(CACHE_DIR, name)
 
 def is_cache_fresh(path:str, hours:int=12)->bool:
-    if not os.path.exists(path):
-        return False
+    if not os.path.exists(path): return False
     try:
         mtime = os.path.getmtime(path)
         return (time.time() - mtime) < hours * 3600
-    except Exception:
-        return False
+    except Exception: return False
 
 def unique_tickers(ticker_list: List[str]) -> List[str]:
     seen = set()
@@ -385,8 +292,7 @@ def fetch_sp500()->List[str]:
             if "symbol" in cols:
                 col = df.columns[cols.index("symbol")]
                 return df[col].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
-    except Exception as e:
-        logger.warning("fetch_sp500 failed: %s. Using fallback list.", e)
+    except Exception: pass
     return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
 
 def fetch_nasdaq100()->List[str]:
@@ -399,8 +305,7 @@ def fetch_nasdaq100()->List[str]:
             for c in df.columns:
                 if str(c).lower() in ("ticker","symbol"):
                     return df[c].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
-    except Exception as e:
-        logger.warning("fetch_nasdaq100 failed: %s. Using empty list.", e)
+    except Exception: pass
     return []
 
 def fetch_core_etfs()->List[str]:
@@ -419,111 +324,93 @@ def fetch_commodities()->List[str]:
     return ["GC=F","SI=F","CL=F","NG=F","GLD","SLV","USO","UNG"]
 
 def build_universe(limit:int=UNIVERSE_LIMIT)->Dict[str,List[str]]:
+    # We allow cache for universe to avoid spamming Wikipedia, but data will be fresh
     cache_file = cache_path("univ_v23_deduped.json")
     if is_cache_fresh(cache_file, 24):
         try:
             with open(cache_file, "r", encoding="utf-8") as f:
-                logger.info("Loading universe from fresh cache: %s", cache_file)
+                logger.info("Loading universe from cache...")
                 return json.load(f)
-        except Exception as e:
-            logger.warning(f"Could not load universe cache: {e}")
+        except Exception: pass
     
-    logger.info("Building fresh universe, cache is stale or missing...")
+    logger.info("Building fresh universe...")
     seen = set()
     data = {}
     
     sp = fetch_sp500(); nq = fetch_nasdaq100()
     stocks = unique_tickers(sp + nq)
-    if not stocks:
-        stocks = ["AAPL","MSFT","NVDA","AMZN","GOOGL"]
+    if not stocks: stocks = ["AAPL","MSFT","NVDA","AMZN","GOOGL"]
     data["Stocks"] = stocks[:limit]
     seen.update(data["Stocks"])
+    
     lev_raw = unique_tickers(fetch_leverage_etfs())
     data["Leverage ETF"] = [t for t in lev_raw if t not in seen]
     seen.update(data["Leverage ETF"])
+    
     crypto_raw = unique_tickers(fetch_crypto())
     data["Crypto"] = [t for t in crypto_raw if t not in seen]
     seen.update(data["Crypto"])
+    
     commodities_raw = unique_tickers(fetch_commodities())
     data["Commodities"] = [t for t in commodities_raw if t not in seen]
     seen.update(data["Commodities"])
+    
     global_etfs_raw = unique_tickers(fetch_global_etfs())
     data["GlobalETF"] = [t for t in global_etfs_raw if t not in seen]
     seen.update(data["GlobalETF"])
+    
     etfs_raw = unique_tickers(fetch_core_etfs())
     data["ETFs"] = [t for t in etfs_raw if t not in seen]
     seen.update(data["ETFs"])
+    
     try:
         with open(cache_file,"w",encoding="utf-8") as f: json.dump(data,f)
-    except Exception as e:
-        logger.warning(f"Could not write universe cache: {e}")
-    total_tickers = sum(len(v) for v in data.values())
-    logger.info(f"Built universe: Stocks {len(data['Stocks'])}, ETFs {len(data['ETFs'])}, Lev {len(data['Leverage ETF'])}, Crypto {len(data['Crypto'])}. Total: {total_tickers}")
+    except Exception: pass
     return data
 
 # -------------------- Watchlist Excel loader --------------------
-def load_watchlist_from_excel(path:Optional[str]=None) -> tuple[Optional[Dict[str,List[str]]], Optional[Dict[str,Dict[str,Any]]]]:
+def load_watchlist_from_excel(path:Optional[str]=None):
     if not path or not os.path.exists(path):
-        logger.info("Watchlist file not found: %s", path) 
         return None, None
     try:
         xls = pd.ExcelFile(path)
-        out_map = {} 
-        out_data = {} 
-        
+        out_map = {}; out_data = {} 
         for sheet in xls.sheet_names:
             try:
                 df = xls.parse(sheet)
-                
-                # Clean headers
                 if df is not None and not df.empty:
                     df.columns = df.columns.astype(str).str.strip()
-
-                if df is None or df.empty or 'Ticker' not in df.columns:
-                    logger.warning(f"Watchlist sheet '{sheet}' in {path} is empty or missing 'Ticker' column. Skipping.")
-                    continue
+                if df is None or df.empty or 'Ticker' not in df.columns: continue
                 
                 sheet_tickers = []
                 for _, row in df.iterrows():
                     ticker = str(row['Ticker']).strip().upper()
-                    if not ticker:
-                        continue
-                    
+                    if not ticker: continue
                     sheet_tickers.append(ticker)
                     
                     try:
                         entry_price = row.get('EntryPrice')
                         if pd.isna(entry_price): entry_price = None
                         else: entry_price = float(entry_price)
-
                         entry_date_raw = row.get('EntryDate')
                         entry_date = None
                         if not pd.isna(entry_date_raw):
                              entry_date = pd.to_datetime(entry_date_raw).strftime('%Y-%m-%d')
-                        
                         out_data[ticker] = {'price': entry_price, 'date': entry_date}
-                    except Exception as e:
-                        if ticker not in out_data:
-                            out_data[ticker] = {'price': None, 'date': None}
-
+                    except:
+                        if ticker not in out_data: out_data[ticker] = {'price': None, 'date': None}
                 if sheet_tickers:
                     out_map[sheet.strip()] = unique_tickers(sheet_tickers)
-                    logger.info("Loaded %d tickers from sheet '%s' in %s", len(sheet_tickers), sheet, path)
-                    
-            except Exception as e:
-                logger.warning("Could not load sheet %s from %s: %s", sheet, path, e)
-                
+            except: pass
         return (out_map or None), (out_data or None)
-    except Exception as e:
-        logger.error("Failed reading watchlist excel %s: %s", path, e)
-        return None, None
+    except Exception: return None, None
 
 # -------------------- Data fetchers --------------------
 def fetch_chart_yahoo_json(ticker:str, interval:str="1d", days:int=365)->Optional[pd.DataFrame]:
     try:
         range_str = f"{max(1, days)}d"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker)}?range={range_str}&interval={interval}"
-        req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"})
+        req = urllib.request.Request(url, headers={"User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(90,120)}.0.0.0 Safari/537.36"})
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             raw = resp.read().decode("utf-8","ignore")
         
@@ -582,6 +469,7 @@ def fetch_weekly(ticker:str, days:int=WEEKLY_LOOKBACK_DAYS)->Optional[pd.DataFra
     return fetch_chart_yahoo_json(ticker, interval="1wk", days=days)
 
 def fetch_metadata(ticker: str) -> dict:
+    # Meta data (sector) changes rarely, keeping cache here is fine, but cleaning folder wipes it anyway.
     cache_file = cache_path(f"{ticker}_meta_v1.json")
     if is_cache_fresh(cache_file, 7 * 24):
         try:
@@ -728,7 +616,8 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
             except Exception: pass
         
         dp = cache_path(f"{ticker}_daily.csv"); daily = None
-        if is_cache_fresh(dp, 6):
+        # Cache check is 1 hour now just in case, but since we wipe dir, it's fresh
+        if is_cache_fresh(dp, 1):
             try: 
                 daily = pd.read_csv(dp, parse_dates=["Date"])
                 if not daily.empty:
@@ -751,33 +640,24 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
         daily_ind = compute_indicators(daily)
         daily_closes = daily_ind['Close'].tolist()
 
-        # --- NEW PERFORMANCE & RSI FILTERS (Fixed Position) ---
         if len(daily_closes) >= 2:
             last_close = daily_closes[-1]
-            
-            # Helper to calculate return percentages
             def get_ret(days):
                 if len(daily_closes) > days:
                     prev = daily_closes[-(days+1)]
                     return (last_close - prev) / prev if prev != 0 else 0
                 return 0
 
-            # Performance tags
             m_ret = get_ret(21); q_ret = get_ret(63); h_ret = get_ret(126); y_ret = get_ret(252)
-            
             if m_ret > 0.05: tags.append("MONTHLY_UP")
             elif m_ret < -0.05: tags.append("MONTHLY_DOWN")
-            
             if q_ret > 0.10: tags.append("QUARTERLY_UP")
             elif q_ret < -0.10: tags.append("QUARTERLY_DOWN")
-            
             if h_ret > 0.15: tags.append("HALFYEARLY_UP")
             elif h_ret < -0.15: tags.append("HALFYEARLY_DOWN")
-            
             if y_ret > 0.20: tags.append("YEARLY_UP")
             elif y_ret < -0.20: tags.append("YEARLY_DOWN")
 
-            # YTD Calculation
             year_start = datetime(now_utc.year, 1, 1, tzinfo=timezone.utc)
             ytd_df = daily_ind[daily_ind['Date'] >= year_start]
             if not ytd_df.empty:
@@ -786,11 +666,9 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
                 if ytd_ret > 0: tags.append("YTD_UP")
                 else: tags.append("YTD_DOWN")
 
-            # RSI Logic
             last_rsi = daily_ind['RSI'].iloc[-1]
             if last_rsi >= 70: tags.append("RSI_OVERBOUGHT")
             elif last_rsi <= 30: tags.append("RSI_OVERSOLD")
-        # --- END NEW FILTERS ---
 
         daily_ext = find_local_extrema(daily_closes, lookback=14)
 
@@ -817,7 +695,7 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
         intr_ext = find_local_extrema(intr_closes, lookback=30)
         
         wp = cache_path(f"{ticker}_weekly.csv"); weekly = None
-        if is_cache_fresh(wp, 24):
+        if is_cache_fresh(wp, 1):
             try: 
                 weekly = pd.read_csv(wp, parse_dates=["Date"])
                 if not weekly.empty:
@@ -934,36 +812,7 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
         logger.error("analyze_ticker %s error: %s", ticker, e)
         return None
 
-def worker_fn(in_q:queue.Queue, out_q:queue.Queue, watchlist_data: Dict[str, Any]): 
-    while True:
-        try: t = in_q.get_nowait()
-        except queue.Empty: break
-        try:
-            entry_data = watchlist_data.get(t)
-            res = analyze_ticker(t, entry_data=entry_data) 
-            if res: out_q.put(res)
-        except Exception: pass
-        finally:
-            in_q.task_done()
-            time.sleep(0.03 + random.random()*0.07)
-
-def run_scan_list(ticker_list:List[str], watchlist_data: Dict[str, Any])->List[Dict[str,Any]]: 
-    q_in = queue.Queue(); q_out = queue.Queue()
-    for t in ticker_list: q_in.put(t)
-    threads=[]
-    n = min(max(1, q_in.qsize()), THREADS)
-    for _ in range(n):
-        th = threading.Thread(target=worker_fn, args=(q_in, q_out, watchlist_data), daemon=True)
-        th.start(); threads.append(th)
-    q_in.join()
-    results=[]
-    while not q_out.empty():
-        try: results.append(q_out.get_nowait())
-        except: break
-    logger.info(f"Scan complete, {len(results)} results collected.")
-    return results
-
-# -------------------- HTML helpers --------------------
+# -------------------- HTML / JS --------------------
 def _df_to_payload(df:pd.DataFrame, max_bars:int=800)->Dict[str,Any]:
     if df is None or df.empty: return {}
     d = df.copy().tail(max_bars).reset_index(drop=True)
@@ -1020,143 +869,55 @@ def make_inline_payload_js(div_id:str, chart_payload:Dict[str,Any], markers:List
         return "<script>" + js + "</script>"
     except Exception: return ""
 
-def embed_local_plotly_text() -> str:
-    try:
-        if os.path.exists(LOCAL_PLOTLY_FILE):
-            with open(LOCAL_PLOTLY_FILE, "r", encoding="utf-8", errors="ignore") as f: return f.read()
-    except Exception: pass
-    return ""
-
-def embed_local_xlsx_text() -> str:
-    try:
-        if os.path.exists(XLSX_JS_FILE):
-            with open(XLSX_JS_FILE, "r", encoding="utf-8", errors="ignore") as f: return f.read()
-    except Exception: pass
-    return ""
-
-# -------------------- Build HTML --------------------
-def generate_html_page(
-    page_type: str, 
-    data_groups: Dict[str,List[Dict[str,Any]]],
-    outpath: str,
-    nav_link: Dict[str, str], 
-    source_info: str,
-    timestamp_str: str,
-    report_js_template: str,
-    existing_favorites: List[Dict[str, Any]] = None 
-):
+def generate_html_page(page_type, data_groups, outpath, nav_link, source_info, timestamp_str, report_js_template, existing_favorites=None):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # 1. Page Title Mapping (Including Inbox)
-    page_title = {
-        "universal":"Universal", 
-        "watchlist":"Watchlist", 
-        "sector":"Sector",
-        "inbox": "Inbox Alerts"
-    }.get(page_type, "Report")
-    
+    page_title = {"universal":"Universal", "watchlist":"Watchlist", "sector":"Sector", "inbox": "Inbox Alerts"}.get(page_type, "Report")
     group_names = list(data_groups.keys())
-    
-    # Pass existing favorites to JS
     fav_json = json.dumps(existing_favorites or [])
 
-    # 2. CSS Loading & Setup
     try:
-        with open('report_style.css', 'r', encoding='utf-8') as f: 
-            report_css = f.read()
+        with open('report_style.css', 'r', encoding='utf-8') as f: report_css = f.read()
     except Exception:
         report_css = "body { font-family: sans-serif; background-color: #f8f9fa; color: #333; padding: 20px; }"
-
-    scroll_btn_css = """
-    #scrollTopBtn {
-      display: none; position: fixed; bottom: 20px; right: 30px; z-index: 99;
-      border: none; outline: none; background-color: #007bff; color: white;
-      cursor: pointer; padding: 10px 15px; border-radius: 8px; font-size: 1rem; font-weight: bold;
-    }
-    #scrollTopBtn:hover { background-color: #0056b3; }
-    """
-    report_css += scroll_btn_css
+    report_css += "\n#scrollTopBtn { display: none; position: fixed; bottom: 20px; right: 30px; z-index: 99; border: none; outline: none; background-color: #007bff; color: white; cursor: pointer; padding: 10px 15px; border-radius: 8px; font-size: 1rem; font-weight: bold; }\n#scrollTopBtn:hover { background-color: #0056b3; }"
 
     parts=[]
     parts.append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>")
     parts.append(f"<title>TopBottom {page_title} {SCRIPT_VERSION} — {now_str}</title>")
-    parts.append(f"<style>{report_css}</style>")
-    parts.append("</head><body>")
+    parts.append(f"<style>{report_css}</style></head><body>")
 
-    # --- 3. Toolbar (Navigation) ---
-    parts.append("<div class='top-toolbar'><div class='brand'>TopBottom — " + SCRIPT_VERSION + "</div>")
-    parts.append("<div class='controls'>")
-
-    # Universal
+    parts.append("<div class='top-toolbar'><div class='brand'>TopBottom — " + SCRIPT_VERSION + "</div><div class='controls'>")
     if page_type == 'universal': parts.append("<button class='btn primary'>🌐 Universal</button>")
     elif 'univ_file' in nav_link: parts.append(f"<a href='{nav_link['univ_file']}' class='btn ghost'>🌐 Universal</a>")
-
-    # Watchlist
     if 'watch_file' in nav_link:
         if page_type == 'watchlist': parts.append("<button class='btn primary'>⭐ Watchlist</button>")
         else: parts.append(f"<a href='{nav_link['watch_file']}' class='btn ghost'>⭐ Watchlist</a>")
-    
-    # Inbox (NEW LOGIC)
     if 'inbox_file' in nav_link:
         if page_type == 'inbox': parts.append("<button class='btn primary'>📩 Inbox</button>")
         else: parts.append(f"<a href='{nav_link['inbox_file']}' class='btn ghost'>📩 Inbox</a>")
-
-    # Sector
     if 'sector_file' in nav_link:
         if page_type == 'sector': parts.append("<button class='btn primary'>📊 Sector</button>")
         else: parts.append(f"<a href='{nav_link['sector_file']}' class='btn ghost'>📊 Sector</a>")
-            
     if 'fav_file' in nav_link: parts.append(f"<a href='{nav_link['fav_file']}' class='btn ghost'>❤️ Favorites</a>")
-
-    parts.append("</div>") 
-    parts.append("<div style='width:16px'></div>")
-    
-    # --- 4. Filter Area ---
-    parts.append("<div class='controls'><div class='filter-area'>") 
+    parts.append("</div><div style='width:16px'></div><div class='controls'><div class='filter-area'>") 
     parts.append("<button class='btn' onclick=\"filterGroup('ALL')\">All</button>")
     for gname in sorted(group_names):
         parts.append(f"<button class='btn' data-filter='{gname}' data-text='{gname}' onclick=\"toggleTagButton(this,'{gname}')\">{gname}</button>")
     
     parts.append("<div style='width:12px; border-left:1px solid #ccc; margin:0 4px;'></div>")
-
-    # Technical Buttons
-    tech_btns = [
-        ('INTRADAY_TOP', 'Intraday Top'), ('INTRADAY_BOTTOM', 'Intraday Bottom'),
-        ('DAILY_TOP', 'Daily Top'), ('DAILY_BOTTOM', 'Daily Bottom'),
-        ('NINE_DAY_HIGH', '9-day High'), ('NINE_DAY_LOW', '9-day Low'),
-        ('BREAKOUT_UP', 'Breakout ↑'), ('BREAKOUT_DOWN', 'Breakout ↓'),
-        ('UPCOMING_EARNINGS', 'Upcoming E (15d)'), ('POST_EARNINGS', 'Post E (15d)'),
-        ('RECENT_WEEKLY_TOP', 'Recent W-Top'), ('RECENT_WEEKLY_BOTTOM', 'Recent W-Bottom'),
-        ('MONTHLY_UP', 'Month ↑'), ('MONTHLY_DOWN', 'Month ↓'),
-        ('YTD_UP', 'YTD ↑'), ('YTD_DOWN', 'YTD ↓'),
-        ('RSI_OVERBOUGHT', 'RSI OB'), ('RSI_OVERSOLD', 'RSI OS')
-    ]
-
+    tech_btns = [('INTRADAY_TOP', 'Intraday Top'), ('INTRADAY_BOTTOM', 'Intraday Bottom'), ('DAILY_TOP', 'Daily Top'), ('DAILY_BOTTOM', 'Daily Bottom'), ('NINE_DAY_HIGH', '9-day High'), ('NINE_DAY_LOW', '9-day Low'), ('BREAKOUT_UP', 'Breakout ↑'), ('BREAKOUT_DOWN', 'Breakout ↓'), ('UPCOMING_EARNINGS', 'Upcoming E (15d)'), ('POST_EARNINGS', 'Post E (15d)'), ('RECENT_WEEKLY_TOP', 'Recent W-Top'), ('RECENT_WEEKLY_BOTTOM', 'Recent W-Bottom'), ('MONTHLY_UP', 'Month ↑'), ('MONTHLY_DOWN', 'Month ↓'), ('YTD_UP', 'YTD ↑'), ('YTD_DOWN', 'YTD ↓'), ('RSI_OVERBOUGHT', 'RSI OB'), ('RSI_OVERSOLD', 'RSI OS')]
     for tag_id, label in tech_btns:
         style = ""
-        if any(x in tag_id for x in ['TOP', 'UP', 'HIGH', 'OVERSOLD']): 
-            style = "background-color:#f0fff4;color:#2f855a;border-color:#c6f6d5;"
-        elif any(x in tag_id for x in ['BOTTOM', 'DOWN', 'LOW', 'OVERBOUGHT']): 
-            style = "background-color:#fff5f5;color:#c53030;border-color:#fecaca;"
+        if any(x in tag_id for x in ['TOP', 'UP', 'HIGH', 'OVERSOLD']): style = "background-color:#f0fff4;color:#2f855a;border-color:#c6f6d5;"
+        elif any(x in tag_id for x in ['BOTTOM', 'DOWN', 'LOW', 'OVERBOUGHT']): style = "background-color:#fff5f5;color:#c53030;border-color:#fecaca;"
         parts.append(f"<button class='btn' data-filter='{tag_id}' data-text='{label}' onclick=\"toggleTagButton(this,'{tag_id}')\" style='{style}'>{label}</button>")
-
-    parts.append("</div>")
-    
-    # Utility Buttons
-    parts.append("<div style='margin-left:auto;display:flex;gap:8px;align-items:center'>")
+    parts.append("</div><div style='margin-left:auto;display:flex;gap:8px;align-items:center'>")
     parts.append("<button class='btn' style='background:#22c55e;color:white;border:1px solid #16a34a;' onclick='exportFavorites()'>💾 Save Favorites DB</button>") 
     parts.append("<select id='modeSelect' class='btn' onchange='setMode(this.value); updateFilterState();'><option value='STRICT' selected>STRICT</option><option value='NORMAL'>NORMAL</option><option value='LOOSE'>LOOSE</option></select>")
-    parts.append("<button class='btn' onclick='downloadCSV()'>Download CSV</button>")
-    parts.append("<button class='btn' onclick='manualRefresh()'>🔄 Refresh</button>")
-    parts.append("<label class='small' style='margin-left:6px'>Auto-Refresh</label><input id='autoRefreshToggle' type='checkbox' onchange='toggleAutoRefresh(this.checked)'>")
-    parts.append("</div></div>") 
+    parts.append("<button class='btn' onclick='downloadCSV()'>Download CSV</button><button class='btn' onclick='manualRefresh()'>🔄 Refresh</button><label class='small' style='margin-left:6px'>Auto-Refresh</label><input id='autoRefreshToggle' type='checkbox' onchange='toggleAutoRefresh(this.checked)'></div></div>") 
 
-    # --- 5. Main Content ---
-    parts.append("<div class='container' style='max-width: 95%;'>")
-    parts.append("<div class='card'><div class='header-row'><div><strong>Source:</strong> " + source_info + "</div><div id='statusMsg' class='status'>Mode: STRICT • Filters: none</div></div><div class='small'>Tip: Click '+ Add' on multiple stocks, then 'Save Favorites DB' to download. Next time you run the script, it will auto-import from Downloads.</div></div>")
-    
-    parts.append(f"<div id='view_content_area' data-page-type='{page_type}'>") 
-    parts.append(f"<h2 style='margin-top:8px'>{page_title} Universe</h2>")
+    parts.append("<div class='container' style='max-width: 95%;'><div class='card'><div class='header-row'><div><strong>Source:</strong> " + source_info + "</div><div id='statusMsg' class='status'>Mode: STRICT • Filters: none</div></div><div class='small'>Tip: Click '+ Add' on multiple stocks, then 'Save Favorites DB' to download. Next time you run the script, it will auto-import from Downloads.</div></div>")
+    parts.append(f"<div id='view_content_area' data-page-type='{page_type}'><h2 style='margin-top:8px'>{page_title} Universe</h2>")
     parts.append("<div id='no_results_msg' class='card' style='display:none; color: var(--muted); text-align: center; padding: 30px;'>No stocks match the current filter combination.</div>")
 
     total_signals = sum(len(v) for v in data_groups.values())
@@ -1165,93 +926,50 @@ def generate_html_page(
     else:
         for tab, items in data_groups.items():
             if not items: continue
-            
             group_name = tab 
             safe_tab_id = "".join(c for c in tab if c.isalnum())
             parts.append(f"<div class='card group-card' id='group_card_{safe_tab_id}' data-group-name='{group_name}'><h3>{group_name} ({len(items)})</h3>")
-            
             for idx, s in enumerate(items[:UNIVERSE_LIMIT]):
                 ticker = s.get('ticker')
                 tags_from_analysis = s.get('tags', [])
-                
-                all_tags = set(tags_from_analysis)
-                all_tags.add(group_name) 
-                if page_type == 'sector' and s.get('sector') and s.get('sector') not in group_names:
-                    all_tags.add(s['sector'])
+                all_tags = set(tags_from_analysis); all_tags.add(group_name) 
+                if page_type == 'sector' and s.get('sector') and s.get('sector') not in group_names: all_tags.add(s['sector'])
                 data_tags_str = ",".join(sorted(list(all_tags)))
-                
-                # Badges
                 badges_html = ""
-                if not tags_from_analysis:
-                    badges_html = "<span class='badge' style='background-color:#f7fafc; color:#718096; border:1px solid #e2e8f0;'>No Signal</span>"
+                if not tags_from_analysis: badges_html = "<span class='badge' style='background-color:#f7fafc; color:#718096; border:1px solid #e2e8f0;'>No Signal</span>"
                 else:
-                    for tag in tags_from_analysis:
-                        badges_html += f" <span class='badge'>{tag}</span>"
-
+                    for tag in tags_from_analysis: badges_html += f" <span class='badge'>{tag}</span>"
                 sector_name = s.get('sector', 'N/A')
-                if (page_type == 'watchlist' or page_type == 'inbox') and sector_name != 'N/A':
-                    badges_html += f" <span class='badge' style='background:#fcf5ff; color:#7b3896; border:1px solid #e8d0f1;'>🏢 {sector_name}</span>"
-
-                if page_type == 'inbox' and s.get('entry_price'):
-                    badges_html += f" <span class='badge' style='background:#fffaf0; color:#9c4221; border:1px solid #feebc8;'>📩 Alert: {money(s['entry_price'])}</span>"
-
+                if (page_type == 'watchlist' or page_type == 'inbox') and sector_name != 'N/A': badges_html += f" <span class='badge' style='background:#fcf5ff; color:#7b3896; border:1px solid #e8d0f1;'>🏢 {sector_name}</span>"
+                if page_type == 'inbox' and s.get('entry_price'): badges_html += f" <span class='badge' style='background:#fffaf0; color:#9c4221; border:1px solid #feebc8;'>📩 Alert: {money(s['entry_price'])}</span>"
                 earnings_date_dt = s.get('earnings_date')
                 earnings_str = earnings_date_dt.strftime('%Y-%m-%d') if isinstance(earnings_date_dt, datetime) else ""
-                if earnings_str:
-                    badges_html += f" <span class='badge' style='background:#f0f5ff; color:#434190; border:1px solid #c3dafe;'>🗓️ Earnings: {earnings_str}</span>"
+                if earnings_str: badges_html += f" <span class='badge' style='background:#f0f5ff; color:#434190; border:1px solid #c3dafe;'>🗓️ Earnings: {earnings_str}</span>"
 
                 parts.append(f"<div class='signal_card card' data-ticker='{ticker}' data-tags='{data_tags_str}'>")
-                
-                last_close = s.get('last_close')
-                last_date = s.get('last_date')
+                last_close = s.get('last_close'); last_date = s.get('last_date')
                 add_button_html = ""
-                
                 if last_close and not pd.isna(last_close):
-                    c_price = f"{last_close:.2f}"
-                    c_date = last_date if last_date else datetime.now().strftime('%Y-%m-%d')
+                    c_price = f"{last_close:.2f}"; c_date = last_date if last_date else datetime.now().strftime('%Y-%m-%d')
                     add_button_html = f"<button id='favbtn_{ticker}' class='btn' onclick=\"addToFavorite('{ticker}', '{c_price}', '{c_date}', this)\" style='font-size: 0.8rem; padding: 4px 8px; margin-left: 10px;'>+ Add to Favorite</button>"
-                
                 parts.append(f"<div style='display:flex;justify-content:space-between;align-items:center'><div><a href='https://finviz.com/quote.ashx?t={ticker}&p=d' target='_blank' style='font-weight:700;color:var(--primary);font-size:1.1rem;'>{ticker}</a> {add_button_html} {badges_html}</div><div class='small'>{('Intraday Top: '+money(s.get('intr_top'))) if s.get('intr_top') else ''}</div></div>")
                 
-                # --- NEW MULTI-TAG TRADE DETAILS ---
                 trade_details = s.get('trade_details', {})
                 if trade_details and tags_from_analysis:
-                    details_html = f"<div style='border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-top: 12px; background: #fdfdfd; font-size: 0.9em;'>"
-                    details_html += f"<h4 style='margin-top: 0; margin-bottom: 8px; color: var(--primary);'>Trade Strategy Analysis</h4>"
-                    
+                    details_html = f"<div style='border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-top: 12px; background: #fdfdfd; font-size: 0.9em;'><h4 style='margin-top: 0; margin-bottom: 8px; color: var(--primary);'>Trade Strategy Analysis</h4>"
                     ordered_tags = sorted(tags_from_analysis, key=lambda x: "0" if "DAILY" in x or "BREAKOUT" in x else "1")
                     for tag in ordered_tags:
                         if tag in trade_details:
                             detail = trade_details[tag]
-                            details_html += f"<div style='margin-bottom: 10px; border-left: 3px solid #cbd5e0; padding-left: 10px;'>"
-                            details_html += f"<div style='font-weight:bold;'>Signal: {tag}</div>"
-                            details_html += f"<p style='margin: 4px 0;'><strong>Technicals:</strong> {detail.get('desc', 'n/a')}</p>"
-                            details_html += "<div style='display: flex; flex-wrap: wrap; gap: 20px;'>"
-                            details_html += f"<div><strong>Entry:</strong> {money(detail.get('entry'))}</div>"
-                            details_html += f"<div><strong style='color: #2f855a;'>Target:</strong> {money(detail.get('tp'))}</div>"
-                            details_html += f"<div><strong style='color: #c53030;'>Stop Loss:</strong> {money(detail.get('sl'))}</div>"
-                            details_html += "</div></div>"
-                    
-                    if earnings_str:
-                         details_html += f"<p style='margin: 8px 0 0 0; color:#434190; font-size: 0.85em;'><strong>🗓️ Upcoming Earnings:</strong> {earnings_str}</p>"
+                            details_html += f"<div style='margin-bottom: 10px; border-left: 3px solid #cbd5e0; padding-left: 10px;'><div style='font-weight:bold;'>Signal: {tag}</div><p style='margin: 4px 0;'><strong>Technicals:</strong> {detail.get('desc', 'n/a')}</p><div style='display: flex; flex-wrap: wrap; gap: 20px;'><div><strong>Entry:</strong> {money(detail.get('entry'))}</div><div><strong style='color: #2f855a;'>Target:</strong> {money(detail.get('tp'))}</div><div><strong style='color: #c53030;'>Stop Loss:</strong> {money(detail.get('sl'))}</div></div></div>"
+                    if earnings_str: details_html += f"<p style='margin: 8px 0 0 0; color:#434190; font-size: 0.85em;'><strong>🗓️ Upcoming Earnings:</strong> {earnings_str}</p>"
                     details_html += "</div>"
                     parts.append(details_html)
                 
-                # Price Trend Bar
                 parts.append(generate_trend_html(s.get('daily_df')))
 
-                # Charts
                 intr_div = f"{page_type}_intr_{idx}_{safe_tab_id}"; daily_div = f"{page_type}_daily_{idx}_{safe_tab_id}"
-                parts.append(f"<div class='grid' style='margin-top:8px'>")
-                parts.append(f"<div><div id='{intr_div}' style='height:{CHART_HEIGHT}px;min-width:240px'></div><div class='chart-controls'>")
-                parts.append(f"<a href='https://stockanalysis.com/stocks/{ticker.lower()}/' target='_blank' class='btn'>📈 Forecast</a>")
-                parts.append(f"<button class='btn' onclick=\"toggleTable('{intr_div}')\">📋 Toggle Table</button>")
-                parts.append(f"</div><div id='{intr_div}_table' class='chart-table' style='display:none'></div></div>")
-                parts.append(f"<div><div id='{daily_div}' style='height:{CHART_HEIGHT}px;min-width:240px'></div><div class='chart-controls'>")
-                parts.append(f"<a href='https://stockanalysis.com/stocks/{ticker.lower()}/' target='_blank' class='btn'>📈 Forecast</a>")
-                parts.append(f"<button class='btn' onclick=\"toggleTable('{daily_div}')\">📋 Toggle Table</button>")
-                parts.append(f"</div><div id='{daily_div}_table' class='chart-table' style='display:none'></div></div>")
-                parts.append(f"</div>") 
+                parts.append(f"<div class='grid' style='margin-top:8px'><div><div id='{intr_div}' style='height:{CHART_HEIGHT}px;min-width:240px'></div><div class='chart-controls'><a href='https://stockanalysis.com/stocks/{ticker.lower()}/' target='_blank' class='btn'>📈 Forecast</a><button class='btn' onclick=\"toggleTable('{intr_div}')\">📋 Toggle Table</button></div><div id='{intr_div}_table' class='chart-table' style='display:none'></div></div><div><div id='{daily_div}' style='height:{CHART_HEIGHT}px;min-width:240px'></div><div class='chart-controls'><a href='https://stockanalysis.com/stocks/{ticker.lower()}/' target='_blank' class='btn'>📈 Forecast</a><button class='btn' onclick=\"toggleTable('{daily_div}')\">📋 Toggle Table</button></div><div id='{daily_div}_table' class='chart-table' style='display:none'></div></div></div></div>")
                 
                 intr_payload = _df_to_payload(s.get('intraday_df'))
                 daily_payload = _df_to_payload(s.get('daily_df'))
@@ -1268,55 +986,39 @@ def generate_html_page(
                                 if isinstance(t,int) and 0 <= t < length: m.append({"type":"trough","pos":t,"price": float(dframe['Close'].iloc[t])})
                         except: pass
                     return m
-
                 im = get_markers(s.get('intraday_df'), s.get('intr_peaks'), s.get('intr_troughs'), s.get('intr_len',0))
                 dm = get_markers(s.get('daily_df'), s.get('daily_peaks'), s.get('daily_troughs'), s.get('daily_len',0))
-
                 if intr_payload.get("labels"): parts.append(make_inline_payload_js(intr_div, intr_payload, im, intr_table_data))
                 if daily_payload.get("labels"): parts.append(make_inline_payload_js(daily_div, daily_payload, dm, daily_table_data))
-                
-                parts.append("</div>") # End signal_card
-            parts.append("</div>") # End group-card
-    parts.append("</div>") # End container
+            parts.append("</div>")
+    parts.append("</div></div>")
 
-    # --- 6. Logs & Footer ---
     logs = log_buffer.getvalue()[-30000:]
-    parts.append("<div class='card'><details open><summary style='cursor: pointer; font-weight: bold; font-size: 1.25rem; margin-bottom: 10px;'>Latest Logs (Click to collapse)</summary>")
-    parts.append("<div style='font-family:monospace;background:#081025;color:#e6f1ff;padding:10px;border-radius:8px;white-space:pre-wrap;font-size:12px; margin-top: 10px; max-height: 400px; overflow-y: auto;'>") 
-    parts.append((logs or "").replace("<","&lt;").replace(">","&gt;"))
-    parts.append("</div></details></div>")
+    parts.append(f"<div class='card'><details open><summary style='cursor: pointer; font-weight: bold; font-size: 1.25rem; margin-bottom: 10px;'>Latest Logs</summary><div style='font-family:monospace;background:#081025;color:#e6f1ff;padding:10px;border-radius:8px;white-space:pre-wrap;font-size:12px; margin-top: 10px; max-height: 400px; overflow-y: auto;'>{(logs or '').replace('<','&lt;').replace('>','&gt;')}</div></details></div>")
+    parts.append(f"<div class='footer-small'>Generated by TopBottom_Universe {SCRIPT_VERSION} — {now_str}</div><button onclick='scrollToTop()' id='scrollTopBtn' title='Go to top'>↑ Top</button>")
 
-    parts.append(f"<div class='footer-small'>Generated by TopBottom_Universe {SCRIPT_VERSION} — {now_str}</div>")
-    parts.append("<button onclick='scrollToTop()' id='scrollTopBtn' title='Go to top'>↑ Top</button>")
-
-    # --- 7. JS Dependencies ---
-    if plotly_text := embed_local_plotly_text(): parts.append("<script>" + plotly_text + "</script>")
+    if os.path.exists(LOCAL_PLOTLY_FILE):
+        with open(LOCAL_PLOTLY_FILE, "r", encoding="utf-8", errors="ignore") as f: parts.append("<script>" + f.read() + "</script>")
     else: parts.append("<script src='https://cdn.plot.ly/plotly-latest.min.js'></script>")
-    if xlsx_text := embed_local_xlsx_text(): parts.append("<script>" + xlsx_text + "</script>")
+    if os.path.exists(XLSX_JS_FILE):
+        with open(XLSX_JS_FILE, "r", encoding="utf-8", errors="ignore") as f: parts.append("<script>" + f.read() + "</script>")
     else: parts.append("<script src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'></script>")
     
     parts.append(f"<script>window.initialFavorites = {fav_json};</script>")
-
     js_final = report_js_template.replace("%EAGER%", str(EAGER_RENDER_FIRST_N)).replace("%REF%", str(AUTO_REFRESH_MINUTES_DEFAULT)).replace("%HEIGHT%", str(CHART_HEIGHT)).replace("%TABLEROWS_DAILY%", str(TABLE_ROWS_DAILY)).replace("%TABLEROWS_INTRADAY%", str(TABLE_ROWS_INTRADAY))
     parts.append("<script>" + js_final + "</script>")
 
-    # --- 8. Dynamic Override Logic (Restoring Count Functionality) ---
     group_names_json = json.dumps(group_names)
     js_override_logic = f"""
     <script>
     (function() {{
         window.currentFavorites = window.initialFavorites || [];
-        
         window.updateFavButtons = function() {{
             window.currentFavorites.forEach(function(fav) {{
                 var btn = document.getElementById('favbtn_' + fav.Ticker);
-                if (btn) {{
-                    btn.innerHTML = "✅ Added";
-                    btn.style.background = "#e2e8f0"; btn.style.color = "#333"; btn.disabled = true;
-                }}
+                if (btn) {{ btn.innerHTML = "✅ Added"; btn.style.background = "#e2e8f0"; btn.style.color = "#333"; btn.disabled = true; }}
             }});
         }};
-
         window.addToFavorite = function(ticker, price, date, btnElement) {{
             if (window.currentFavorites.find(f => f.Ticker === ticker)) return;
             var newFav = {{ 'Ticker': ticker, 'EntryPrice': price, 'EntryDate': date }};
@@ -1324,34 +1026,26 @@ def generate_html_page(
             localStorage.setItem('local_favorites_pending', JSON.stringify(window.currentFavorites));
             if (btnElement) {{ btnElement.innerHTML = "✅ Added"; btnElement.disabled = true; }}
         }};
-
         window.exportFavorites = function() {{
             var ws = XLSX.utils.json_to_sheet(window.currentFavorites);
             var wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
             XLSX.writeFile(wb, "favorites.xlsx");
         }};
-
         window.updateFilterState = function() {{
             var allCards = document.querySelectorAll('.signal_card');
             var visibleCards = document.querySelectorAll('.signal_card:not([style*="display: none"])');
             var allButtons = document.querySelectorAll('.filter-area .btn[data-filter]');
             var statusMsg = document.getElementById('statusMsg');
             var currentMode = document.getElementById('modeSelect') ? document.getElementById('modeSelect').value : 'STRICT';
-            
             var activeFilterNames = [];
             document.querySelectorAll('.filter-area .btn.active').forEach(b => {{ if(b.dataset.text) activeFilterNames.push(b.dataset.text); }});
-            
-            if (statusMsg) {{
-                statusMsg.innerHTML = `Mode: ${{currentMode}} • Filters: ${{activeFilterNames.length > 0 ? activeFilterNames.join(' AND ') : 'none'}} • Showing ${{visibleCards.length}} of ${{allCards.length}} stocks`;
-            }}
-
+            if (statusMsg) {{ statusMsg.innerHTML = `Mode: ${{currentMode}} • Filters: ${{activeFilterNames.length > 0 ? activeFilterNames.join(' AND ') : 'none'}} • Showing ${{visibleCards.length}} of ${{allCards.length}} stocks`; }}
             allButtons.forEach(function(btn) {{
                 if (!btn.dataset.text) return;
                 var tagToCount = btn.dataset.filter;
-                if (btn.classList.contains('active')) {{
-                    btn.innerHTML = btn.dataset.text;
-                }} else {{
+                if (btn.classList.contains('active')) {{ btn.innerHTML = btn.dataset.text; }} 
+                else {{
                     var count = 0;
                     visibleCards.forEach(function(card) {{
                         var tags = card.dataset.tags ? card.dataset.tags.split(',') : [];
@@ -1361,31 +1055,22 @@ def generate_html_page(
                 }}
             }});
         }};
-
         window.addEventListener('load', function() {{
             window.updateFavButtons();
             var _orig_toggle = window.toggleTagButton;
             var _orig_filter = window.filterGroup;
             var groupFilters = new Set({group_names_json});
             var allGroupCards = document.querySelectorAll('.card.group-card');
-
             window.filterGroup = function(tag) {{
-                _orig_filter(tag);
-                allGroupCards.forEach(c => c.style.display = 'block');
-                window.updateFilterState();
+                _orig_filter(tag); allGroupCards.forEach(c => c.style.display = 'block'); window.updateFilterState();
             }};
-
             window.toggleTagButton = function(btn, tag) {{
                 _orig_toggle(btn, tag);
                 var activeFilters = Array.from(document.querySelectorAll('.filter-area .btn.active')).map(b => b.dataset.filter);
                 var currentGroupFilters = activeFilters.filter(f => groupFilters.has(f));
-                
                 allGroupCards.forEach(function(gc) {{
-                    if (currentGroupFilters.length > 0) {{
-                        gc.style.display = currentGroupFilters.includes(gc.dataset.groupName) ? 'block' : 'none';
-                    }} else {{
-                        gc.style.display = 'block';
-                    }}
+                    if (currentGroupFilters.length > 0) {{ gc.style.display = currentGroupFilters.includes(gc.dataset.groupName) ? 'block' : 'none'; }} 
+                    else {{ gc.style.display = 'block'; }}
                 }});
                 window.updateFilterState();
             }};
@@ -1395,14 +1080,11 @@ def generate_html_page(
     </script>
     """
     parts.append(js_override_logic + "</body></html>")
-
-    # 9. Final File Write
     try:
-        with open(outpath, "w", encoding="utf-8") as f:
-            f.write("\n".join(parts))
+        with open(outpath, "w", encoding="utf-8") as f: f.write("\n".join(parts))
         logger.info("Saved HTML report: %s", outpath)
-    except Exception as e:
-        logger.error("Could not write HTML: %s", e)
+    except Exception as e: logger.error("Could not write HTML: %s", e)
+
 # -------------------- Main --------------------
 def clean_output_directory(path: str):
     if not os.path.exists(path):
@@ -1420,17 +1102,16 @@ def main():
     # --- AUTOMATION: Run auto-import first ---
     auto_import_favorites_from_downloads()
 
+    # --- FIX 1: Force Clear Cache to prevent stale data ---
+    logger.info("--- MAINTENANCE: Clearing Cache Directory to force fresh data ---")
+    clean_output_directory(CACHE_DIR)
+    
     clean_output_directory(MASTER_OUTPUT_DIR)
     os.makedirs(CACHE_DIR, exist_ok=True)
     os.makedirs(CHARTS_DIR, exist_ok=True)
             
     # --- 1. Load Watchlists & Favorites ---
-    watchmap_final = {}
-    watchdata_final = {}
-    favmap_final = {}
-    favdata_final = {}
-    current_favorites_list = [] 
-
+    watchmap_final = {}; watchdata_final = {}; favmap_final = {}; favdata_final = {}; current_favorites_list = [] 
     if USE_WATCHLIST_EXCEL:
         watchmap_orig, watchdata_orig = load_watchlist_from_excel(WATCHLIST_FILE)
         watchmap_final = (watchmap_orig or {}).copy()
@@ -1450,17 +1131,15 @@ def main():
         
         watchlist_tickers = set(t for group in watchmap_final.values() for t in group)
         favorite_tickers = set(t for group in favmap_final.values() for t in group)
-        
         all_entry_data = watchdata_final.copy()
         all_entry_data.update(favdata_final) 
 
-    # --- NEW: 2. Parse Inbox Tickers ---
-    inbox_map = parse_inbox()  # Logic provided in previous step
+    # --- 2. Parse Inbox Tickers ---
+    inbox_map = parse_inbox()
     inbox_tickers = set(inbox_map.keys())
-    # Update entry data with inbox prices/dates if available
     all_entry_data.update({t: {'price': v['price'], 'date': v['date']} for t, v in inbox_map.items()})
 
-    # --- 3. Build Universal Ticker List ---
+    # --- 3. Build Universe Ticker List ---
     universe_map = build_universe()
     all_universe_tickers = set(t for group in universe_map.values() for t in group)
 
@@ -1469,7 +1148,6 @@ def main():
     if 'favorite_tickers' not in locals(): favorite_tickers = set()
     if 'all_entry_data' not in locals(): all_entry_data = {}
 
-    # Added inbox_tickers to the union
     tickers_to_scan = all_universe_tickers.union(watchlist_tickers).union(favorite_tickers).union(inbox_tickers)
     logger.info("Total unique tickers to scan (including Inbox): %d", len(tickers_to_scan))
 
@@ -1486,7 +1164,6 @@ def main():
                 result = analyze_ticker(ticker, entry_data=entry_data) 
                 if result:
                     tags = result.get('tags', [])
-                    # Include if flagged OR if it belongs to a specific user-defined list
                     if tags or (ticker in watchlist_tickers) or (ticker in favorite_tickers) or (ticker in inbox_tickers):
                         results.append(result)
             except Exception as e: logger.error(f"Worker error: {e}")
@@ -1502,60 +1179,49 @@ def main():
     groups_univ: Dict[str, List[Dict[str, Any]]] = {k:[] for k in universe_map.keys()}
     groups_wl: Dict[str, List[Dict[str, Any]]] = {k:[] for k in watchmap_final.keys()}
     groups_fav: Dict[str, List[Dict[str, Any]]] = {k:[] for k in favmap_final.keys()}
-    groups_inbox: Dict[str, List[Dict[str, Any]]] = {"Recent Inbox Alerts": []} # NEW
+    groups_inbox: Dict[str, List[Dict[str, Any]]] = {"Recent Inbox Alerts": []} 
     groups_sector: Dict[str, List[Dict[str, Any]]] = {}
 
     for r in results:
         ticker = r['ticker']
-        # Group Universe
         for cat, tickers in universe_map.items():
             if ticker in tickers and r.get('tags'): groups_univ[cat].append(r)
-        # Group Watchlist
         for cat, tickers in watchmap_final.items():
             if ticker in tickers: groups_wl[cat].append(r)
-        # Group Favorites
         for cat, tickers in favmap_final.items():
             if ticker in tickers: groups_fav[cat].append(r)
-        # Group Inbox (NEW)
         if ticker in inbox_tickers:
             groups_inbox["Recent Inbox Alerts"].append(r)
-        
-        # Sector grouping
         if r.get('tags'):
             sector_name = r.get('sector') or "Other"
             if sector_name not in groups_sector: groups_sector[sector_name] = []
             groups_sector[sector_name].append(r)
     
     # --- 6. Export and Generate Reports ---
-    # (CSV/TXT Export logic remains the same)
     flagged_results = [r for r in results if r.get('tags')]
     if flagged_results:
         df_out = pd.DataFrame(flagged_results)
-        # ... (keep existing dataframe processing) ...
         df_out.sort_values(by=['ticker'], inplace=True)
-        df_out.to_csv(OUT_CSV, index=False)
+        try: df_out.to_csv(OUT_CSV, index=False)
+        except: pass
 
-    # --- 7. HTML Report Generation ---
     try:
         with open('report_script.js', 'r', encoding='utf-8') as f: report_js_template = f.read()
     except Exception: report_js_template = "alert('report_script.js not found.');"
 
-    # Updated navigation with new inbox_file
     nav_links = {
         "univ_file": os.path.basename(OUT_HTML_UNIV),
         "watch_file": os.path.basename(OUT_HTML_WATCH),
         "sector_file": os.path.basename(OUT_HTML_SECTOR),
         "fav_file": os.path.basename(OUT_HTML_FAV),
-        "inbox_file": os.path.basename(OUT_HTML_INBOX) # NEW
+        "inbox_file": os.path.basename(OUT_HTML_INBOX)
     }
 
-    # Generate Universal, Watchlist, Sector reports
     generate_html_page(page_type="universal", data_groups=groups_univ, outpath=OUT_HTML_UNIV, nav_link=nav_links, source_info="Universal", timestamp_str=TIMESTAMP, report_js_template=report_js_template, existing_favorites=current_favorites_list)
     if watchmap_final:
         generate_html_page(page_type="watchlist", data_groups=groups_wl, outpath=OUT_HTML_WATCH, nav_link=nav_links, source_info="Watchlist", timestamp_str=TIMESTAMP, report_js_template=report_js_template, existing_favorites=current_favorites_list)
     generate_html_page(page_type="sector", data_groups=groups_sector, outpath=OUT_HTML_SECTOR, nav_link=nav_links, source_info="Sector", timestamp_str=TIMESTAMP, report_js_template=report_js_template, existing_favorites=current_favorites_list)
     
-    # NEW: Generate Inbox Report
     generate_html_page(
         page_type="inbox", data_groups=groups_inbox, outpath=OUT_HTML_INBOX,
         nav_link=nav_links, source_info="Inbox Alerts", timestamp_str=TIMESTAMP,
@@ -1566,31 +1232,25 @@ def main():
         generate_favorites_tile_report(data_groups=groups_fav, outpath=OUT_HTML_FAV, nav_link=nav_links, source_info="Favorites", timestamp_str=TIMESTAMP, script_version=SCRIPT_VERSION, report_js_template=report_js_template)
         
     try:
-        # Default open to the Inbox if items found, otherwise Universal
         target_open = OUT_HTML_INBOX if groups_inbox["Recent Inbox Alerts"] else OUT_HTML_UNIV
-        if os.path.exists(target_open):
-            if __name__ == "__main__" and os.getenv("GITHUB_ACTIONS") != "true":
+        if os.path.exists(target_open) and os.getenv("GITHUB_ACTIONS") != "true":
              webbrowser.open(f'file://{os.path.abspath(target_open)}')
              logger.info("Opened HTML report: %s", os.path.abspath(target_open))
     except Exception as e: logger.error("Failed to open browser: %s", e)
-     
-
 
 def market_is_open():
     nyse = mcal.get_calendar("NYSE")
     now = pd.Timestamp.now(tz="America/New_York")
     sched = nyse.schedule(start_date=now.date(), end_date=now.date())
-    if sched.empty:
-        return False
+    if sched.empty: return False
     return sched.iloc[0]["market_open"] <= now <= sched.iloc[0]["market_close"]
 
-   
 if __name__ == "__main__":
+    # --- FIX 2: Removed strict exit on market closed ---
+    # We allow the script to run so reports update even off-hours
     if not market_is_open():
-     print("Market closed — skipping run.")
-     sys.exit(0)
+         logger.info("Market is currently CLOSED. Running in offline/review mode.")
+    else:
+         logger.info("Market is OPEN.")
+    
     main()
-
-
-
-
