@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# TopBottom_Universe vFinal27 - Force Refresh Fix
+# TopBottom_Universe vFinal28 - Size Optimized
 # --- EXPERT MODIFICATIONS ---
-# 1. FIX: Removed duplicate directory definitions.
-# 2. FIX: Added forced cache cleaning at startup (deletes tb_cache folder contents).
-# 3. FIX: Removed "Market Closed" check so report ALWAYS generates when run.
-# 4. EXISTING: Auto-imports favorites from Downloads.
+# 1. OPTIMIZATION: Added rounding to 2 decimals for all chart data to save space.
+# 2. OPTIMIZATION: Reduced Chart History limits (252 daily, 150 intraday) to prevent 100MB+ files.
+# 3. OPTIMIZATION: Minified JSON injection (removed whitespace).
+# 4. EXISTING: Auto-import, Force Refresh, Market Check Override.
 
 from __future__ import annotations
 import os, sys, time, json, math, random, logging, urllib.request, urllib.parse, webbrowser
@@ -29,7 +29,6 @@ except ImportError:
     print("Run: pip install pandas numpy beautifulsoup4 lxml openpyxl python-dateutil pandas_market_calendars")
     sys.exit(1)
 
-# This adds the folder where the script lives to the Python path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
@@ -37,12 +36,11 @@ if script_dir not in sys.path:
 try:
     from favorites_report_builder import generate_favorites_tile_report
 except ImportError:
-    # We will just warn and continue if missing, to avoid crashing the main logic
     print("Warning: favorites_report_builder.py not found. Favorites tile report will be skipped.")
     def generate_favorites_tile_report(*args, **kwargs): pass
 
 # -------------------- CONFIG --------------------
-SCRIPT_VERSION = "vFinal27-ForceRefresh"
+SCRIPT_VERSION = "vFinal28-SizeOptimized"
 
 # --- EMAIL / INBOX CONFIG ---
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
@@ -53,16 +51,13 @@ INBOX_LOOKBACK_DAYS = 1
 # --- PRICE TREND CONFIG ---
 PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
 
-# -------------------- UPDATED PATHS --------------------
+# --- FILE PATHS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Output folder for HTML reports
 MASTER_OUTPUT_DIR = os.path.join(BASE_DIR, "docs")
 os.makedirs(MASTER_OUTPUT_DIR, exist_ok=True)
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M")
 
-# Fixed filenames (Overwrite mode)
 OUT_HTML_INBOX  = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Inbox.html")
 OUT_HTML_UNIV   = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Universal.html")
 OUT_HTML_WATCH  = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Watchlist.html") 
@@ -71,27 +66,29 @@ OUT_HTML_FAV    = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Favorites_Tile.html
 OUT_CSV         = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Flagged.csv")
 OUT_TXT         = os.path.join(MASTER_OUTPUT_DIR, "TopBottom_Summary.txt")
 
-# Cache Directory
 CACHE_DIR = os.path.join(BASE_DIR, "tb_cache")
 CHARTS_DIR = os.path.join(BASE_DIR, "charts")
 
-# Excel file locations
 WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.xlsx") 
 FAVORITES_FILE = os.path.join(BASE_DIR, "favorites.xlsx") 
 
 DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
-UNIVERSE_LIMIT = 400
+# --- SIZE OPTIMIZATION SETTINGS ---
+UNIVERSE_LIMIT = 350          # Slightly reduced to keep Universal.html smaller
+MAX_HISTORY_DAILY = 252       # Limit daily chart to 1 year (was 800)
+MAX_HISTORY_INTRADAY = 150    # Limit intraday chart to ~2.5 days (was 800)
 EAGER_RENDER_FIRST_N = 18
+
 THREADS = 25
 REQUEST_TIMEOUT = 20
 LOCAL_PLOTLY_FILE = "plotly-latest.min.js"
 XLSX_JS_FILE = "xlsx.full.min.js" 
 
 INTRADAY_INTERVAL = "5m"
-INTRADAY_DAYS = 8
-DAILY_LOOKBACK_DAYS = 180
+INTRADAY_DAYS = 5             # Fetch 5 days, but display MAX_HISTORY_INTRADAY
+DAILY_LOOKBACK_DAYS = 300     # Fetch 300 days, but display MAX_HISTORY_DAILY
 WEEKLY_LOOKBACK_DAYS = 365 
 RSI_PERIOD = 14
 BB_PERIOD = 20
@@ -104,9 +101,8 @@ TABLE_ROWS_INTRADAY = 30
 
 finviz_lock = threading.Lock()
 
-# Logging
 log_buffer = StringIO()
-logger = logging.getLogger("TopBottom_v27")
+logger = logging.getLogger("TopBottom_v28")
 logger.setLevel(logging.INFO)
 if logger.hasHandlers():
     logger.handlers.clear()
@@ -187,24 +183,19 @@ def parse_inbox():
     except Exception as e:
         logger.error(f"Inbox connection/parsing failed: {e}")
     
-    logger.info(f"Inbox scan complete. Found {len(results)} unique tickers.")
     return results
 
 # -------------------- Automation Helpers --------------------
 def auto_import_favorites_from_downloads():
     logger.info("--- AUTOMATION: Checking Downloads folder for new favorites... ---")
-    
     if not os.path.exists(DOWNLOADS_FOLDER):
         logger.warning(f"Could not find Downloads folder at: {DOWNLOADS_FOLDER}")
         return
-
     pattern = os.path.join(DOWNLOADS_FOLDER, "favorites*.xlsx")
     candidates = glob.glob(pattern)
-    
     if not candidates:
         logger.info("No new 'favorites.xlsx' found in Downloads.")
         return
-
     try:
         newest_file = max(candidates, key=os.path.getmtime)
         logger.info(f"Found new favorites file: {newest_file}")
@@ -254,10 +245,6 @@ def money(v:Optional[float]) -> str:
     try:
         if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))): return "n/a"
         return f"${float(v):.2f}"
-    except: return "n/a"
-
-def safe_str(v, fmt=".2f"):
-    try: return f"{float(v):{fmt}}"
     except: return "n/a"
 
 def cache_path(name:str)->str:
@@ -324,8 +311,7 @@ def fetch_commodities()->List[str]:
     return ["GC=F","SI=F","CL=F","NG=F","GLD","SLV","USO","UNG"]
 
 def build_universe(limit:int=UNIVERSE_LIMIT)->Dict[str,List[str]]:
-    # We allow cache for universe to avoid spamming Wikipedia, but data will be fresh
-    cache_file = cache_path("univ_v23_deduped.json")
+    cache_file = cache_path("univ_v28_deduped.json")
     if is_cache_fresh(cache_file, 24):
         try:
             with open(cache_file, "r", encoding="utf-8") as f:
@@ -387,7 +373,6 @@ def load_watchlist_from_excel(path:Optional[str]=None):
                     ticker = str(row['Ticker']).strip().upper()
                     if not ticker: continue
                     sheet_tickers.append(ticker)
-                    
                     try:
                         entry_price = row.get('EntryPrice')
                         if pd.isna(entry_price): entry_price = None
@@ -469,13 +454,10 @@ def fetch_weekly(ticker:str, days:int=WEEKLY_LOOKBACK_DAYS)->Optional[pd.DataFra
     return fetch_chart_yahoo_json(ticker, interval="1wk", days=days)
 
 def fetch_metadata(ticker: str) -> dict:
-    # Meta data (sector) changes rarely, keeping cache here is fine, but cleaning folder wipes it anyway.
     cache_file = cache_path(f"{ticker}_meta_v1.json")
     if is_cache_fresh(cache_file, 7 * 24):
-        try:
-            with open(cache_file, "r") as f: return json.load(f)
+        try: with open(cache_file, "r") as f: return json.load(f)
         except: pass
-
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(ticker)}?modules=assetProfile,calendarEvents"
@@ -531,10 +513,8 @@ def compute_indicators(df:pd.DataFrame)->pd.DataFrame:
     d['Date'] = pd.to_datetime(d['Date'], errors='coerce') 
     d = d.dropna(subset=['Date','Close']).sort_values('Date').reset_index(drop=True)
     if d.empty: return pd.DataFrame()
-    
     d['ema9'] = d['Close'].ewm(span=9, adjust=False).mean()
     d['ema21'] = d['Close'].ewm(span=21, adjust=False).mean()
-    
     delta = d['Close'].diff()
     up = delta.clip(lower=0); down = -delta.clip(upper=0)
     avg_up = up.rolling(RSI_PERIOD, min_periods=1).mean()
@@ -542,16 +522,13 @@ def compute_indicators(df:pd.DataFrame)->pd.DataFrame:
     rs = avg_up / avg_down.replace(0, np.nan)
     d['RSI'] = 100 - (100/(1+rs))
     d['RSI'] = d['RSI'].fillna(50.0)
-    
     prev = d['Close'].shift(1)
     tr = pd.concat([(d['High']-d['Low']).abs(), (d['High']-prev).abs(), (d['Low']-prev).abs()], axis=1).max(axis=1)
     d['ATR'] = tr.rolling(14, min_periods=1).mean()
-    
     d['BB_mid'] = d['Close'].rolling(BB_PERIOD, min_periods=1).mean()
     d['BB_std'] = d['Close'].rolling(BB_PERIOD, min_periods=1).std().fillna(0)
     d['BB_upper'] = d['BB_mid'] + BB_STD * d['BB_std']
     d['BB_lower'] = d['BB_mid'] - BB_STD * d['BB_std']
-    
     return d
 
 def find_local_extrema(values:List[float], lookback:int=14, prominence_mult:float=0.6)->Dict[str,List[int]]:
@@ -597,17 +574,11 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
         now_utc = datetime.now(timezone.utc)
         recent_thresh_daily = now_utc - timedelta(days=4)
         recent_thresh_weekly = now_utc - timedelta(days=14)
-        
         meta = fetch_metadata(ticker)
         sector = meta.get('sector')
-
         earnings_date_dt = None
-        if meta.get('earningsDate'):
-            earnings_date_dt = datetime.fromisoformat(meta['earningsDate'])
-
-        if earnings_date_dt is None:
-            earnings_date_dt = fetch_earnings_date_finviz(ticker)
-
+        if meta.get('earningsDate'): earnings_date_dt = datetime.fromisoformat(meta['earningsDate'])
+        if earnings_date_dt is None: earnings_date_dt = fetch_earnings_date_finviz(ticker)
         if earnings_date_dt:
             try:
                 days_diff = (earnings_date_dt - now_utc).total_seconds() / 86400.0
@@ -616,7 +587,6 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
             except Exception: pass
         
         dp = cache_path(f"{ticker}_daily.csv"); daily = None
-        # Cache check is 1 hour now just in case, but since we wipe dir, it's fresh
         if is_cache_fresh(dp, 1):
             try: 
                 daily = pd.read_csv(dp, parse_dates=["Date"])
@@ -624,22 +594,16 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
                     if daily['Date'].dt.tz is None: daily['Date'] = daily['Date'].dt.tz_localize(timezone.utc)
                     else: daily['Date'] = daily['Date'].dt.tz_convert(timezone.utc)
             except: daily = None
-                
         if daily is None or daily.empty:
             daily = fetch_chart_yahoo_json(ticker, interval="1d", days=DAILY_LOOKBACK_DAYS)
             if daily is None or daily.empty: return None 
             try: daily.to_csv(dp, index=False)
             except: pass
-        
-        if daily is not None and not daily.empty:
-             daily['Date'] = daily['Date'].dt.tz_convert(timezone.utc)
+        if daily is not None and not daily.empty: daily['Date'] = daily['Date'].dt.tz_convert(timezone.utc)
         else: return None
-
         if len(daily) < 21: return None
-            
         daily_ind = compute_indicators(daily)
         daily_closes = daily_ind['Close'].tolist()
-
         if len(daily_closes) >= 2:
             last_close = daily_closes[-1]
             def get_ret(days):
@@ -647,7 +611,6 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
                     prev = daily_closes[-(days+1)]
                     return (last_close - prev) / prev if prev != 0 else 0
                 return 0
-
             m_ret = get_ret(21); q_ret = get_ret(63); h_ret = get_ret(126); y_ret = get_ret(252)
             if m_ret > 0.05: tags.append("MONTHLY_UP")
             elif m_ret < -0.05: tags.append("MONTHLY_DOWN")
@@ -657,7 +620,6 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
             elif h_ret < -0.15: tags.append("HALFYEARLY_DOWN")
             if y_ret > 0.20: tags.append("YEARLY_UP")
             elif y_ret < -0.20: tags.append("YEARLY_DOWN")
-
             year_start = datetime(now_utc.year, 1, 1, tzinfo=timezone.utc)
             ytd_df = daily_ind[daily_ind['Date'] >= year_start]
             if not ytd_df.empty:
@@ -665,7 +627,6 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
                 ytd_ret = (last_close - ytd_start_price) / ytd_start_price
                 if ytd_ret > 0: tags.append("YTD_UP")
                 else: tags.append("YTD_DOWN")
-
             last_rsi = daily_ind['RSI'].iloc[-1]
             if last_rsi >= 70: tags.append("RSI_OVERBOUGHT")
             elif last_rsi <= 30: tags.append("RSI_OVERSOLD")
@@ -680,16 +641,12 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
                     if intr['Date'].dt.tz is None: intr['Date'] = intr['Date'].dt.tz_localize(timezone.utc)
                     else: intr['Date'] = intr['Date'].dt.tz_convert(timezone.utc)
             except: intr = None
-                
         if intr is None or intr.empty:
             intr = fetch_intraday(ticker, interval=INTRADAY_INTERVAL, days=INTRADAY_DAYS)
             if intr is not None and not intr.empty:
                 try: intr.to_csv(ip, index=False)
                 except: pass
-        
-        if intr is not None and not intr.empty:
-            intr['Date'] = intr['Date'].dt.tz_convert(timezone.utc)
-
+        if intr is not None and not intr.empty: intr['Date'] = intr['Date'].dt.tz_convert(timezone.utc)
         intr_ind = compute_indicators(intr) if (intr is not None and not intr.empty) else pd.DataFrame()
         intr_closes = intr_ind['Close'].tolist() if not intr_ind.empty else []
         intr_ext = find_local_extrema(intr_closes, lookback=30)
@@ -702,16 +659,12 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
                     if weekly['Date'].dt.tz is None: weekly['Date'] = weekly['Date'].dt.tz_localize(timezone.utc)
                     else: weekly['Date'] = weekly['Date'].dt.tz_convert(timezone.utc)
             except: weekly = None
-
         if weekly is None or weekly.empty:
             weekly = fetch_weekly(ticker, days=WEEKLY_LOOKBACK_DAYS)
             if weekly is not None and not weekly.empty:
                 try: weekly.to_csv(wp, index=False)
                 except: pass
-
-        if weekly is not None and not weekly.empty:
-            weekly['Date'] = weekly['Date'].dt.tz_convert(timezone.utc)
-
+        if weekly is not None and not weekly.empty: weekly['Date'] = weekly['Date'].dt.tz_convert(timezone.utc)
         weekly_ind = compute_indicators(weekly) if (weekly is not None and not weekly.empty) else pd.DataFrame()
         weekly_closes = weekly_ind['Close'].tolist() if not weekly_ind.empty else []
         weekly_ext = find_local_extrema(weekly_closes, lookback=8)
@@ -802,18 +755,17 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
             "trade_details": trade_details, "sector": sector,
             "last_close": last_close, "last_date": last_date,
         }
-        
         if entry_data:
             result['entry_price'] = entry_data.get('price')
             result['entry_date'] = entry_data.get('date')
-            
         return result
     except Exception as e:
         logger.error("analyze_ticker %s error: %s", ticker, e)
         return None
 
 # -------------------- HTML / JS --------------------
-def _df_to_payload(df:pd.DataFrame, max_bars:int=800)->Dict[str,Any]:
+def _df_to_payload(df:pd.DataFrame, max_bars:int=252)->Dict[str,Any]:
+    # OPTIMIZATION: Reduced max_bars default and added rounding
     if df is None or df.empty: return {}
     d = df.copy().tail(max_bars).reset_index(drop=True)
     labels = []
@@ -827,16 +779,20 @@ def _df_to_payload(df:pd.DataFrame, max_bars:int=800)->Dict[str,Any]:
     for x in d['Date'].tolist():
         try: labels.append(x.strftime(date_format))
         except: labels.append(str(x))
+    
+    # OPTIMIZATION: Helper for safe float rounding
+    def rnd(x): return round(float(x), 2) if (x is not None and not pd.isna(x)) else None
+
     return {
         "labels": labels,
-        "open": [None if pd.isna(x) else float(x) for x in d['Open'].tolist()],
-        "high": [None if pd.isna(x) else float(x) for x in d['High'].tolist()],
-        "low": [None if pd.isna(x) else float(x) for x in d['Low'].tolist()],
-        "close": [None if pd.isna(x) else float(x) for x in d['Close'].tolist()],
-        "volume": [None if pd.isna(x) else int(x) for x in d['Volume'].tolist()],
-        "bb_upper": [None if 'BB_upper' not in d or pd.isna(x) else float(x) for x in (d.get('BB_upper', pd.Series([np.nan]*len(d))).tolist())],
-        "bb_mid": [None if 'BB_mid' not in d or pd.isna(x) else float(x) for x in (d.get('BB_mid', pd.Series([np.nan]*len(d))).tolist())],
-        "bb_lower": [None if 'BB_lower' not in d or pd.isna(x) else float(x) for x in (d.get('BB_lower', pd.Series([np.nan]*len(d))).tolist())]
+        "open": [rnd(x) for x in d['Open'].tolist()],
+        "high": [rnd(x) for x in d['High'].tolist()],
+        "low": [rnd(x) for x in d['Low'].tolist()],
+        "close": [rnd(x) for x in d['Close'].tolist()],
+        "volume": [int(x) if not pd.isna(x) else 0 for x in d['Volume'].tolist()],
+        "bb_upper": [rnd(x) for x in (d.get('BB_upper', pd.Series([np.nan]*len(d))).tolist())],
+        "bb_mid": [rnd(x) for x in (d.get('BB_mid', pd.Series([np.nan]*len(d))).tolist())],
+        "bb_lower": [rnd(x) for x in (d.get('BB_lower', pd.Series([np.nan]*len(d))).tolist())]
     }
 
 def _df_to_table_data(df:pd.DataFrame, num_rows:int)->Dict[str,Any]:
@@ -853,19 +809,22 @@ def _df_to_table_data(df:pd.DataFrame, num_rows:int)->Dict[str,Any]:
     for x in d['Date'].tolist():
         try: labels.append(x.strftime(date_format))
         except: labels.append(str(x))
+    def rnd(x): return round(float(x), 2) if (x is not None and not pd.isna(x)) else None
     return {
-        "labels": labels, "open": [float(x) if not pd.isna(x) else None for x in d['Open'].tolist()],
-        "high": [float(x) if not pd.isna(x) else None for x in d['High'].tolist()],
-        "low": [float(x) if not pd.isna(x) else None for x in d['Low'].tolist()],
-        "close": [float(x) for x in d['Close'].tolist()],
+        "labels": labels, 
+        "open": [rnd(x) for x in d['Open'].tolist()],
+        "high": [rnd(x) for x in d['High'].tolist()],
+        "low": [rnd(x) for x in d['Low'].tolist()],
+        "close": [rnd(x) for x in d['Close'].tolist()],
         "volume": [int(x) if not pd.isna(x) else 0 for x in d['Volume'].tolist()]
     }
 
 def make_inline_payload_js(div_id:str, chart_payload:Dict[str,Any], markers:List[Dict[str,Any]]=None, table_data:Dict[str,Any]=None)->str:
     try:
         obj = {"data": chart_payload, "markers": markers or [], "tableData": table_data or {}}
+        # OPTIMIZATION: Use separators to remove whitespace from JSON
         js = "window._tb_chart_payloads = window._tb_chart_payloads || {};\n"
-        js += f"window._tb_chart_payloads['{div_id}'] = {json.dumps(obj)};\n"
+        js += f"window._tb_chart_payloads['{div_id}'] = {json.dumps(obj, separators=(',', ':'))};\n"
         return "<script>" + js + "</script>"
     except Exception: return ""
 
@@ -971,8 +930,8 @@ def generate_html_page(page_type, data_groups, outpath, nav_link, source_info, t
                 intr_div = f"{page_type}_intr_{idx}_{safe_tab_id}"; daily_div = f"{page_type}_daily_{idx}_{safe_tab_id}"
                 parts.append(f"<div class='grid' style='margin-top:8px'><div><div id='{intr_div}' style='height:{CHART_HEIGHT}px;min-width:240px'></div><div class='chart-controls'><a href='https://stockanalysis.com/stocks/{ticker.lower()}/' target='_blank' class='btn'>📈 Forecast</a><button class='btn' onclick=\"toggleTable('{intr_div}')\">📋 Toggle Table</button></div><div id='{intr_div}_table' class='chart-table' style='display:none'></div></div><div><div id='{daily_div}' style='height:{CHART_HEIGHT}px;min-width:240px'></div><div class='chart-controls'><a href='https://stockanalysis.com/stocks/{ticker.lower()}/' target='_blank' class='btn'>📈 Forecast</a><button class='btn' onclick=\"toggleTable('{daily_div}')\">📋 Toggle Table</button></div><div id='{daily_div}_table' class='chart-table' style='display:none'></div></div></div></div>")
                 
-                intr_payload = _df_to_payload(s.get('intraday_df'))
-                daily_payload = _df_to_payload(s.get('daily_df'))
+                intr_payload = _df_to_payload(s.get('intraday_df'), MAX_HISTORY_INTRADAY)
+                daily_payload = _df_to_payload(s.get('daily_df'), MAX_HISTORY_DAILY)
                 intr_table_data = _df_to_table_data(s.get('intraday_df'), TABLE_ROWS_INTRADAY)
                 daily_table_data = _df_to_table_data(s.get('daily_df'), TABLE_ROWS_DAILY)
                 
@@ -1099,10 +1058,7 @@ def clean_output_directory(path: str):
         except Exception: pass
 
 def main():
-    # --- AUTOMATION: Run auto-import first ---
     auto_import_favorites_from_downloads()
-
-    # --- FIX 1: Force Clear Cache to prevent stale data ---
     logger.info("--- MAINTENANCE: Clearing Cache Directory to force fresh data ---")
     clean_output_directory(CACHE_DIR)
     
@@ -1110,7 +1066,6 @@ def main():
     os.makedirs(CACHE_DIR, exist_ok=True)
     os.makedirs(CHARTS_DIR, exist_ok=True)
             
-    # --- 1. Load Watchlists & Favorites ---
     watchmap_final = {}; watchdata_final = {}; favmap_final = {}; favdata_final = {}; current_favorites_list = [] 
     if USE_WATCHLIST_EXCEL:
         watchmap_orig, watchdata_orig = load_watchlist_from_excel(WATCHLIST_FILE)
@@ -1134,16 +1089,13 @@ def main():
         all_entry_data = watchdata_final.copy()
         all_entry_data.update(favdata_final) 
 
-    # --- 2. Parse Inbox Tickers ---
     inbox_map = parse_inbox()
     inbox_tickers = set(inbox_map.keys())
     all_entry_data.update({t: {'price': v['price'], 'date': v['date']} for t, v in inbox_map.items()})
 
-    # --- 3. Build Universe Ticker List ---
     universe_map = build_universe()
     all_universe_tickers = set(t for group in universe_map.values() for t in group)
 
-    # --- 4. Combine Tickers and Process ---
     if 'watchlist_tickers' not in locals(): watchlist_tickers = set()
     if 'favorite_tickers' not in locals(): favorite_tickers = set()
     if 'all_entry_data' not in locals(): all_entry_data = {}
@@ -1175,7 +1127,6 @@ def main():
         t.start(); threads.append(t)
     q.join()
     
-    # --- 5. Grouping Results ---
     groups_univ: Dict[str, List[Dict[str, Any]]] = {k:[] for k in universe_map.keys()}
     groups_wl: Dict[str, List[Dict[str, Any]]] = {k:[] for k in watchmap_final.keys()}
     groups_fav: Dict[str, List[Dict[str, Any]]] = {k:[] for k in favmap_final.keys()}
@@ -1197,7 +1148,6 @@ def main():
             if sector_name not in groups_sector: groups_sector[sector_name] = []
             groups_sector[sector_name].append(r)
     
-    # --- 6. Export and Generate Reports ---
     flagged_results = [r for r in results if r.get('tags')]
     if flagged_results:
         df_out = pd.DataFrame(flagged_results)
@@ -1221,7 +1171,6 @@ def main():
     if watchmap_final:
         generate_html_page(page_type="watchlist", data_groups=groups_wl, outpath=OUT_HTML_WATCH, nav_link=nav_links, source_info="Watchlist", timestamp_str=TIMESTAMP, report_js_template=report_js_template, existing_favorites=current_favorites_list)
     generate_html_page(page_type="sector", data_groups=groups_sector, outpath=OUT_HTML_SECTOR, nav_link=nav_links, source_info="Sector", timestamp_str=TIMESTAMP, report_js_template=report_js_template, existing_favorites=current_favorites_list)
-    
     generate_html_page(
         page_type="inbox", data_groups=groups_inbox, outpath=OUT_HTML_INBOX,
         nav_link=nav_links, source_info="Inbox Alerts", timestamp_str=TIMESTAMP,
@@ -1246,11 +1195,6 @@ def market_is_open():
     return sched.iloc[0]["market_open"] <= now <= sched.iloc[0]["market_close"]
 
 if __name__ == "__main__":
-    # --- FIX 2: Removed strict exit on market closed ---
-    # We allow the script to run so reports update even off-hours
-    if not market_is_open():
-         logger.info("Market is currently CLOSED. Running in offline/review mode.")
-    else:
-         logger.info("Market is OPEN.")
-    
+    if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
+    else: logger.info("Market is OPEN.")
     main()
