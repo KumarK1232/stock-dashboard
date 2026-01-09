@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-# TopBottom_Universe vFinal28 - Size Optimized
+# TopBottom_Universe vFinal29 - Syntax Fixed & Optimized
 # --- EXPERT MODIFICATIONS ---
-# 1. OPTIMIZATION: Added rounding to 2 decimals for all chart data to save space.
-# 2. OPTIMIZATION: Reduced Chart History limits (252 daily, 150 intraday) to prevent 100MB+ files.
-# 3. OPTIMIZATION: Minified JSON injection (removed whitespace).
-# 4. EXISTING: Auto-import, Force Refresh, Market Check Override.
+# 1. FIX: Corrected SyntaxError on line 459 (split try/with into separate lines).
+# 2. OPTIMIZATION: Kept all previous size optimizations (rounding, data pruning).
+# 3. EXISTING: Auto-import, Force Refresh, Market Check Override.
 
 from __future__ import annotations
 import os, sys, time, json, math, random, logging, urllib.request, urllib.parse, webbrowser
@@ -40,7 +39,7 @@ except ImportError:
     def generate_favorites_tile_report(*args, **kwargs): pass
 
 # -------------------- CONFIG --------------------
-SCRIPT_VERSION = "vFinal28-SizeOptimized"
+SCRIPT_VERSION = "vFinal29-SyntaxFixed"
 
 # --- EMAIL / INBOX CONFIG ---
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
@@ -76,9 +75,9 @@ DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
 # --- SIZE OPTIMIZATION SETTINGS ---
-UNIVERSE_LIMIT = 350          # Slightly reduced to keep Universal.html smaller
-MAX_HISTORY_DAILY = 252       # Limit daily chart to 1 year (was 800)
-MAX_HISTORY_INTRADAY = 150    # Limit intraday chart to ~2.5 days (was 800)
+UNIVERSE_LIMIT = 350          
+MAX_HISTORY_DAILY = 252       
+MAX_HISTORY_INTRADAY = 150    
 EAGER_RENDER_FIRST_N = 18
 
 THREADS = 25
@@ -87,8 +86,8 @@ LOCAL_PLOTLY_FILE = "plotly-latest.min.js"
 XLSX_JS_FILE = "xlsx.full.min.js" 
 
 INTRADAY_INTERVAL = "5m"
-INTRADAY_DAYS = 5             # Fetch 5 days, but display MAX_HISTORY_INTRADAY
-DAILY_LOOKBACK_DAYS = 300     # Fetch 300 days, but display MAX_HISTORY_DAILY
+INTRADAY_DAYS = 5             
+DAILY_LOOKBACK_DAYS = 300     
 WEEKLY_LOOKBACK_DAYS = 365 
 RSI_PERIOD = 14
 BB_PERIOD = 20
@@ -102,7 +101,7 @@ TABLE_ROWS_INTRADAY = 30
 finviz_lock = threading.Lock()
 
 log_buffer = StringIO()
-logger = logging.getLogger("TopBottom_v28")
+logger = logging.getLogger("TopBottom_v29")
 logger.setLevel(logging.INFO)
 if logger.hasHandlers():
     logger.handlers.clear()
@@ -456,7 +455,9 @@ def fetch_weekly(ticker:str, days:int=WEEKLY_LOOKBACK_DAYS)->Optional[pd.DataFra
 def fetch_metadata(ticker: str) -> dict:
     cache_file = cache_path(f"{ticker}_meta_v1.json")
     if is_cache_fresh(cache_file, 7 * 24):
-        try: with open(cache_file, "r") as f: return json.load(f)
+        try:
+            with open(cache_file, "r") as f:
+                return json.load(f)
         except: pass
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -765,7 +766,6 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
 
 # -------------------- HTML / JS --------------------
 def _df_to_payload(df:pd.DataFrame, max_bars:int=252)->Dict[str,Any]:
-    # OPTIMIZATION: Reduced max_bars default and added rounding
     if df is None or df.empty: return {}
     d = df.copy().tail(max_bars).reset_index(drop=True)
     labels = []
@@ -780,7 +780,6 @@ def _df_to_payload(df:pd.DataFrame, max_bars:int=252)->Dict[str,Any]:
         try: labels.append(x.strftime(date_format))
         except: labels.append(str(x))
     
-    # OPTIMIZATION: Helper for safe float rounding
     def rnd(x): return round(float(x), 2) if (x is not None and not pd.isna(x)) else None
 
     return {
@@ -822,7 +821,6 @@ def _df_to_table_data(df:pd.DataFrame, num_rows:int)->Dict[str,Any]:
 def make_inline_payload_js(div_id:str, chart_payload:Dict[str,Any], markers:List[Dict[str,Any]]=None, table_data:Dict[str,Any]=None)->str:
     try:
         obj = {"data": chart_payload, "markers": markers or [], "tableData": table_data or {}}
-        # OPTIMIZATION: Use separators to remove whitespace from JSON
         js = "window._tb_chart_payloads = window._tb_chart_payloads || {};\n"
         js += f"window._tb_chart_payloads['{div_id}'] = {json.dumps(obj, separators=(',', ':'))};\n"
         return "<script>" + js + "</script>"
