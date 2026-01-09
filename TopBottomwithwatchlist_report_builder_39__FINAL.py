@@ -45,7 +45,7 @@ SCRIPT_VERSION = "vFinal29-SyntaxFixed"
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
 SENDER_EMAIL = "stockusals@gmail.com"
-INBOX_LOOKBACK_DAYS = 1
+INBOX_LOOKBACK_DAYS = 3
 
 # --- PRICE TREND CONFIG ---
 PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
@@ -1196,3 +1196,4 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
