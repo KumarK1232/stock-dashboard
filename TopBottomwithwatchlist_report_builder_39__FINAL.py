@@ -300,7 +300,18 @@ def fetch_sp500() -> List[str]:
                 )
 
     except Exception:
-        pass
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            html = resp.read().decode("utf-8","ignore")
+        for df in pd.read_html(StringIO(html)):
+            cols = [str(c).lower() for c in df.columns]
+            if "symbol" in cols:
+                col = df.columns[cols.index("symbol")]
+                return df[col].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
+    except Exception: pass
+    return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
 
     # Safe fallback
     return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
@@ -340,7 +351,17 @@ def fetch_nasdaq100() -> List[str]:
                 )
 
     except Exception:
-        pass
+        url = "https://en.wikipedia.org/wiki/NASDAQ-100"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            html = resp.read().decode("utf-8","ignore")
+        for df in pd.read_html(StringIO(html)):
+            for c in df.columns:
+                if str(c).lower() in ("ticker","symbol"):
+                    return df[c].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
+    except Exception: pass
+    return []
 
     # Safe fallback
     return ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA"]
@@ -1248,6 +1269,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
