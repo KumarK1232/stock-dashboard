@@ -80,7 +80,7 @@ DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
 # --- SIZE OPTIMIZATION SETTINGS ---
-UNIVERSE_LIMIT = 500          
+UNIVERSE_LIMIT = 400          
 MAX_HISTORY_DAILY = 252       
 MAX_HISTORY_INTRADAY = 150    
 EAGER_RENDER_FIRST_N = 18
@@ -285,7 +285,7 @@ def fetch_sp500() -> List[str]:
     # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
     print("Starting Finviz fetch...")
     finviz_tickers = []
-    target_count = 400  # How many we want from Finviz
+    target_count = 200  # How many we want from Finviz
     current_offset = 1  # Finviz 'r' parameter starts at 1
     
     # URL: USA, Price > $10, Vol > 500k, Sorted by Market Cap (Desc)
@@ -294,7 +294,7 @@ def fetch_sp500() -> List[str]:
     base_finviz_url = (
         "https://finviz.com/screener.ashx?"
             "v=111&"
-            "f=geo_usa,sh_price_o10,sh_avgvol_o500,"
+            "f=geo_usa,sh_price_o10,sh_avgvol_o800,"
             "ta_sma200_a,ta_sma50_below&"
             "o=-marketcap"
     )
@@ -404,7 +404,7 @@ def fetch_nasdaq100() -> List[str]:
     target_count = 150  # Target cap for Finviz
     current_offset = 1  # Finviz 'r' parameter starts at 1
 
-    # URL: USA, Nasdaq, Price > $10, Vol > 500k, Sorted by Market Cap (Desc)
+    # URL: USA, Nasdaq, Price > $10, Vol > 700k, Sorted by Market Cap (Desc)
     # NOTE: Strict SMA filters removed to ensure data population.
     base_finviz_url = (
         "https://finviz.com/screener.ashx?"
@@ -1414,6 +1414,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
