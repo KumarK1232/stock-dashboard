@@ -408,9 +408,10 @@ def fetch_nasdaq100() -> List[str]:
     # NOTE: Strict SMA filters removed to ensure data population.
     base_finviz_url = (
         "https://finviz.com/screener.ashx?"
-        "v=111&"
-        "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500&"
-        "o=-marketcap"
+            "v=111&"
+            "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500,"
+            "ta_sma200_a,ta_sma50_below&"
+            "o=-marketcap"
     )
 
     headers = {
@@ -1413,6 +1414,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
