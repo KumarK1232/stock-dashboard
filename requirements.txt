@@ -4,3 +4,5 @@ yfinance
 beautifulsoup4
 pandas-market-calendars
 openpyxl
+lxml
+html5lib
