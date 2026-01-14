@@ -18,6 +18,9 @@ import email
 import io
 import pandas_market_calendars as mcal
 
+import urllib.request
+
+from typing import List
 try:
     import pandas as pd
     import numpy as np
@@ -267,104 +270,186 @@ def unique_tickers(ticker_list: List[str]) -> List[str]:
     return unique_list
 
 # -------------------- Universe builders --------------------
+
+
+# Define timeout if not already defined in your global scope
+REQUEST_TIMEOUT = 10 
+
 def fetch_sp500() -> List[str]:
-    # NEXT-LEADER smart-money universe (early-stage candidates)
-    # Stocks with strong fundamentals but NOT yet leading
-    url = (
-        "https://finviz.com/screener.ashx?"
-        "v=111&"
-        "f=geo_usa,sh_price_o10,sh_avgvol_o500,"
-        "ta_sma200_a,ta_sma50_below&"
-        "o=-marketcap"
-    )
-
+    # Use a set to automatically avoid duplicates when combining lists
+    combined_tickers = set()
+    
+    # --- PART 1: FETCH FROM FINVIZ ---
     try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"}
+        finviz_url = (
+            "https://finviz.com/screener.ashx?"
+            "v=111&"
+            "f=geo_usa,sh_price_o10,sh_avgvol_o500,"
+            "ta_sma200_a,ta_sma50_below&"
+            "o=-marketcap"
         )
-
+        
+        # Finviz requires a very specific User-Agent to avoid 403 Forbidden errors
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        
+        req = urllib.request.Request(finviz_url, headers=headers)
+        
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             html = resp.read().decode("utf-8", "ignore")
-
+            
+        # Parse Finviz Tables
+        found_finviz = False
         for df in pd.read_html(StringIO(html)):
             cols = [str(c).lower() for c in df.columns]
             if "ticker" in cols:
                 col = df.columns[cols.index("ticker")]
-                return (
+                tickers = (
                     df[col]
                     .astype(str)
                     .str.strip()
                     .str.upper()
-                    .tolist()[:400]
+                    .tolist()[:400] # Limit as requested
                 )
+                combined_tickers.update(tickers) # Add to our main set
+                found_finviz = True
+                print(f"Successfully fetched {len(tickers)} tickers from Finviz.")
+                break
+                
+    except Exception as e:
+        print(f"Finviz fetch failed: {e}")
+        # We do NOT return here; we continue to Wikipedia
 
-    except Exception:
-        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    # --- PART 2: FETCH FROM WIKIPEDIA ---
     try:
-        req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+        wiki_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        req = urllib.request.Request(wiki_url, headers={"User-Agent": "Mozilla/5.0"})
+        
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            html = resp.read().decode("utf-8","ignore")
+            html = resp.read().decode("utf-8", "ignore")
+            
+        # Parse Wiki Tables
         for df in pd.read_html(StringIO(html)):
             cols = [str(c).lower() for c in df.columns]
             if "symbol" in cols:
                 col = df.columns[cols.index("symbol")]
-                return df[col].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
-    except Exception: pass
-    return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
+                tickers = (
+                    df[col]
+                    .astype(str)
+                    .str.replace(".", "-", regex=False) # Fix BRK.B -> BRK-B
+                    .str.strip()
+                    .str.upper()
+                    .tolist()
+                )
+                combined_tickers.update(tickers) # Add to our main set
+                print(f"Successfully fetched {len(tickers)} tickers from Wikipedia.")
+                break
+                
+    except Exception as e:
+        print(f"Wikipedia fetch failed: {e}")
 
-    # Safe fallback
-    return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
+    # --- PART 3: RETURN COMBINED OR FALLBACK ---
+    if not combined_tickers:
+        print("Both sources failed. Returning fallback list.")
+        return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
+    
+    # Convert set back to a sorted list
+    return sorted(list(combined_tickers))
 
+# Ensure REQUEST_TIMEOUT is defined
+REQUEST_TIMEOUT = 10 
 
 def fetch_nasdaq100() -> List[str]:
     # NEXT-LEADER Nasdaq universe (early institutional setup)
     # Strong Nasdaq stocks that are NOT yet extended
-    url = (
-        "https://finviz.com/screener.ashx?"
-        "v=111&"
-        "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500,"
-        "ta_sma200_a,ta_sma50_below&"
-        "o=-marketcap"
-    )
+    
+    combined_tickers = set()
 
+    # --- PART 1: FETCH FROM FINVIZ ---
     try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"}
+        finviz_url = (
+            "https://finviz.com/screener.ashx?"
+            "v=111&"
+            "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500,"
+            "ta_sma200_a,ta_sma50_below&"
+            "o=-marketcap"
         )
+        
+        # Robust headers to prevent 403 Forbidden errors
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
 
+        req = urllib.request.Request(finviz_url, headers=headers)
+        
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             html = resp.read().decode("utf-8", "ignore")
 
+        # Parse Finviz Tables
         for df in pd.read_html(StringIO(html)):
             cols = [str(c).lower() for c in df.columns]
             if "ticker" in cols:
                 col = df.columns[cols.index("ticker")]
-                return (
+                tickers = (
                     df[col]
                     .astype(str)
                     .str.replace(".", "-", regex=False)
                     .str.strip()
                     .str.upper()
-                    .tolist()[:150]   # Nasdaq-focused universe size
+                    .tolist()[:150]  # Nasdaq-focused universe size cap
                 )
+                combined_tickers.update(tickers)
+                print(f"Successfully fetched {len(tickers)} tickers from Finviz.")
+                break
 
-    except Exception:
-        url = "https://en.wikipedia.org/wiki/NASDAQ-100"
+    except Exception as e:
+        print(f"Finviz fetch failed: {e}")
+        # Continue to Wikipedia (do not return)
+
+    # --- PART 2: FETCH FROM WIKIPEDIA ---
     try:
-        req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+        wiki_url = "https://en.wikipedia.org/wiki/NASDAQ-100"
+        req = urllib.request.Request(wiki_url, headers={"User-Agent": "Mozilla/5.0"})
+        
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            html = resp.read().decode("utf-8","ignore")
+            html = resp.read().decode("utf-8", "ignore")
+            
+        # Parse Wiki Tables
         for df in pd.read_html(StringIO(html)):
+            # Normalize column names to find 'ticker' or 'symbol'
+            # Wikipedia NASDAQ-100 table typically uses 'Ticker'
+            found_col = None
             for c in df.columns:
-                if str(c).lower() in ("ticker","symbol"):
-                    return df[c].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
-    except Exception: pass
-    return []
+                if str(c).lower() in ("ticker", "symbol"):
+                    found_col = c
+                    break
+            
+            if found_col:
+                tickers = (
+                    df[found_col]
+                    .astype(str)
+                    .str.replace(".", "-", regex=False)
+                    .str.strip()
+                    .str.upper()
+                    .tolist()
+                )
+                combined_tickers.update(tickers)
+                print(f"Successfully fetched {len(tickers)} tickers from Wikipedia.")
+                break
+                
+    except Exception as e:
+        print(f"Wikipedia fetch failed: {e}")
 
-    # Safe fallback
-    return ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA"]
+    # --- PART 3: RETURN COMBINED OR FALLBACK ---
+    if not combined_tickers:
+        print("Both sources failed. Returning fallback list.")
+        return ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"]
+
+    # Return combined unique list
+    return sorted(list(combined_tickers))
+
+
 
 
 def fetch_core_etfs()->List[str]:
@@ -1269,6 +1354,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
