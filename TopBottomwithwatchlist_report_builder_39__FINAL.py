@@ -45,7 +45,7 @@ SCRIPT_VERSION = "vFinal29-SyntaxFixed"
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
 SENDER_EMAIL = "stockusals@gmail.com"
-INBOX_LOOKBACK_DAYS = 3
+INBOX_LOOKBACK_DAYS = 15
 
 # --- PRICE TREND CONFIG ---
 PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
@@ -75,7 +75,7 @@ DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
 # --- SIZE OPTIMIZATION SETTINGS ---
-UNIVERSE_LIMIT = 350          
+UNIVERSE_LIMIT = 500          
 MAX_HISTORY_DAILY = 252       
 MAX_HISTORY_INTRADAY = 150    
 EAGER_RENDER_FIRST_N = 18
@@ -1196,4 +1196,5 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
