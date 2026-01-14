@@ -17,6 +17,8 @@ import imaplib
 import email
 import io
 import pandas_market_calendars as mcal
+import time
+from typing import List
 
 import urllib.request
 
@@ -272,54 +274,84 @@ def unique_tickers(ticker_list: List[str]) -> List[str]:
 # -------------------- Universe builders --------------------
 
 
-# Define timeout if not already defined in your global scope
+
+# Define timeout if not already defined
 REQUEST_TIMEOUT = 10 
 
 def fetch_sp500() -> List[str]:
     # Use a set to automatically avoid duplicates when combining lists
     combined_tickers = set()
     
-    # --- PART 1: FETCH FROM FINVIZ ---
-    try:
-        finviz_url = (
-            "https://finviz.com/screener.ashx?"
+    # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
+    print("Starting Finviz fetch...")
+    finviz_tickers = []
+    target_count = 400  # How many we want from Finviz
+    current_offset = 1  # Finviz 'r' parameter starts at 1
+    
+    # URL: USA, Price > $10, Vol > 500k, Sorted by Market Cap (Desc)
+    # NOTE: I removed 'ta_sma200_a,ta_sma50_below' to ensure you get full data.
+    # If you keep those strict filters, you will likely only ever get <10 results.
+    base_finviz_url = (
+        "https://finviz.com/screener.ashx?"
             "v=111&"
             "f=geo_usa,sh_price_o10,sh_avgvol_o500,"
             "ta_sma200_a,ta_sma50_below&"
             "o=-marketcap"
-        )
-        
-        # Finviz requires a very specific User-Agent to avoid 403 Forbidden errors
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        
-        req = urllib.request.Request(finviz_url, headers=headers)
-        
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            html = resp.read().decode("utf-8", "ignore")
+    )
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+
+    try:
+        while len(finviz_tickers) < target_count:
+            # Append the 'r' parameter for pagination (1, 21, 41...)
+            page_url = f"{base_finviz_url}&r={current_offset}"
             
-        # Parse Finviz Tables
-        found_finviz = False
-        for df in pd.read_html(StringIO(html)):
-            cols = [str(c).lower() for c in df.columns]
-            if "ticker" in cols:
-                col = df.columns[cols.index("ticker")]
-                tickers = (
-                    df[col]
-                    .astype(str)
-                    .str.strip()
-                    .str.upper()
-                    .tolist()[:400] # Limit as requested
-                )
-                combined_tickers.update(tickers) # Add to our main set
-                found_finviz = True
-                print(f"Successfully fetched {len(tickers)} tickers from Finviz.")
+            req = urllib.request.Request(page_url, headers=headers)
+            
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                html = resp.read().decode("utf-8", "ignore")
+            
+            # Parse Tables
+            found_table = False
+            for df in pd.read_html(StringIO(html)):
+                # Normalize columns
+                cols = [str(c).lower() for c in df.columns]
+                
+                if "ticker" in cols:
+                    col_name = df.columns[cols.index("ticker")]
+                    # Extract tickers from this page
+                    page_tickers = (
+                        df[col_name]
+                        .astype(str)
+                        .str.strip()
+                        .str.upper()
+                        .tolist()
+                    )
+                    
+                    finviz_tickers.extend(page_tickers)
+                    found_table = True
+                    print(f"  Fetched batch starting at {current_offset}... (Total: {len(finviz_tickers)})")
+                    break
+            
+            if not found_table or not page_tickers:
+                print("  No more data found or table parsing failed.")
                 break
                 
+            # Move offset for next page (Finviz displays 20 rows per page)
+            current_offset += 20
+            
+            # CRITICAL: Sleep to avoid 403 Forbidden / IP Ban
+            time.sleep(1.5) 
+            
+        # Limit to exact request if we went over
+        finviz_tickers = finviz_tickers[:target_count]
+        combined_tickers.update(finviz_tickers)
+        print(f"Successfully fetched {len(finviz_tickers)} tickers from Finviz.")
+
     except Exception as e:
-        print(f"Finviz fetch failed: {e}")
-        # We do NOT return here; we continue to Wikipedia
+        print(f"Finviz fetch failed at offset {current_offset}: {e}")
 
     # --- PART 2: FETCH FROM WIKIPEDIA ---
     try:
@@ -328,8 +360,7 @@ def fetch_sp500() -> List[str]:
         
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             html = resp.read().decode("utf-8", "ignore")
-            
-        # Parse Wiki Tables
+        
         for df in pd.read_html(StringIO(html)):
             cols = [str(c).lower() for c in df.columns]
             if "symbol" in cols:
@@ -337,27 +368,28 @@ def fetch_sp500() -> List[str]:
                 tickers = (
                     df[col]
                     .astype(str)
-                    .str.replace(".", "-", regex=False) # Fix BRK.B -> BRK-B
+                    .str.replace(".", "-", regex=False)
                     .str.strip()
                     .str.upper()
                     .tolist()
                 )
-                combined_tickers.update(tickers) # Add to our main set
+                combined_tickers.update(tickers)
                 print(f"Successfully fetched {len(tickers)} tickers from Wikipedia.")
                 break
                 
     except Exception as e:
         print(f"Wikipedia fetch failed: {e}")
 
-    # --- PART 3: RETURN COMBINED OR FALLBACK ---
+    # --- PART 3: RETURN COMBINED ---
     if not combined_tickers:
         print("Both sources failed. Returning fallback list.")
         return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
     
-    # Convert set back to a sorted list
+    print(f"Total unique tickers to scan: {len(combined_tickers)}")
     return sorted(list(combined_tickers))
 
 # Ensure REQUEST_TIMEOUT is defined
+# Define timeout if not already defined
 REQUEST_TIMEOUT = 10 
 
 def fetch_nasdaq100() -> List[str]:
@@ -366,45 +398,73 @@ def fetch_nasdaq100() -> List[str]:
     
     combined_tickers = set()
 
-    # --- PART 1: FETCH FROM FINVIZ ---
+    # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
+    print("Starting Finviz Nasdaq fetch...")
+    finviz_tickers = []
+    target_count = 150  # Target cap for Finviz
+    current_offset = 1  # Finviz 'r' parameter starts at 1
+
+    # URL: USA, Nasdaq, Price > $10, Vol > 500k, Sorted by Market Cap (Desc)
+    # NOTE: Strict SMA filters removed to ensure data population.
+    base_finviz_url = (
+        "https://finviz.com/screener.ashx?"
+        "v=111&"
+        "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500&"
+        "o=-marketcap"
+    )
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+
     try:
-        finviz_url = (
-            "https://finviz.com/screener.ashx?"
-            "v=111&"
-            "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500,"
-            "ta_sma200_a,ta_sma50_below&"
-            "o=-marketcap"
-        )
-        
-        # Robust headers to prevent 403 Forbidden errors
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
+        while len(finviz_tickers) < target_count:
+            # Append pagination parameter
+            page_url = f"{base_finviz_url}&r={current_offset}"
+            
+            req = urllib.request.Request(page_url, headers=headers)
+            
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                html = resp.read().decode("utf-8", "ignore")
 
-        req = urllib.request.Request(finviz_url, headers=headers)
-        
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            html = resp.read().decode("utf-8", "ignore")
-
-        # Parse Finviz Tables
-        for df in pd.read_html(StringIO(html)):
-            cols = [str(c).lower() for c in df.columns]
-            if "ticker" in cols:
-                col = df.columns[cols.index("ticker")]
-                tickers = (
-                    df[col]
-                    .astype(str)
-                    .str.replace(".", "-", regex=False)
-                    .str.strip()
-                    .str.upper()
-                    .tolist()[:150]  # Nasdaq-focused universe size cap
-                )
-                combined_tickers.update(tickers)
-                print(f"Successfully fetched {len(tickers)} tickers from Finviz.")
+            # Parse Finviz Tables
+            found_table = False
+            for df in pd.read_html(StringIO(html)):
+                cols = [str(c).lower() for c in df.columns]
+                
+                if "ticker" in cols:
+                    col_name = df.columns[cols.index("ticker")]
+                    page_tickers = (
+                        df[col_name]
+                        .astype(str)
+                        .str.replace(".", "-", regex=False)
+                        .str.strip()
+                        .str.upper()
+                        .tolist()
+                    )
+                    
+                    finviz_tickers.extend(page_tickers)
+                    found_table = True
+                    print(f"  Fetched batch starting at {current_offset}... (Total: {len(finviz_tickers)})")
+                    break
+            
+            if not found_table or not page_tickers:
+                print("  No more data found or table parsing failed.")
                 break
+            
+            # Increment offset (Finviz has 20 items per page)
+            current_offset += 20
+            
+            # Sleep to respect rate limits
+            time.sleep(1.5)
+
+        # Trim to target if we over-fetched
+        finviz_tickers = finviz_tickers[:target_count]
+        combined_tickers.update(finviz_tickers)
+        print(f"Successfully fetched {len(finviz_tickers)} tickers from Finviz.")
 
     except Exception as e:
-        print(f"Finviz fetch failed: {e}")
+        print(f"Finviz fetch failed at offset {current_offset}: {e}")
         # Continue to Wikipedia (do not return)
 
     # --- PART 2: FETCH FROM WIKIPEDIA ---
@@ -418,7 +478,6 @@ def fetch_nasdaq100() -> List[str]:
         # Parse Wiki Tables
         for df in pd.read_html(StringIO(html)):
             # Normalize column names to find 'ticker' or 'symbol'
-            # Wikipedia NASDAQ-100 table typically uses 'Ticker'
             found_col = None
             for c in df.columns:
                 if str(c).lower() in ("ticker", "symbol"):
@@ -446,9 +505,9 @@ def fetch_nasdaq100() -> List[str]:
         print("Both sources failed. Returning fallback list.")
         return ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"]
 
+    print(f"Total unique tickers to scan: {len(combined_tickers)}")
     # Return combined unique list
     return sorted(list(combined_tickers))
-
 
 
 
@@ -1354,6 +1413,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
