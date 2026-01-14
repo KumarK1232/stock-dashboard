@@ -306,18 +306,45 @@ def fetch_sp500() -> List[str]:
     return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
 
 
-def fetch_nasdaq100()->List[str]:
-    url = "https://en.wikipedia.org/wiki/NASDAQ-100"
+def fetch_nasdaq100() -> List[str]:
+    # NEXT-LEADER Nasdaq universe (early institutional setup)
+    # Strong Nasdaq stocks that are NOT yet extended
+    url = (
+        "https://finviz.com/screener.ashx?"
+        "v=111&"
+        "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500,"
+        "ta_sma200_a,ta_sma50_below&"
+        "o=-marketcap"
+    )
+
     try:
-        req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            html = resp.read().decode("utf-8","ignore")
+            html = resp.read().decode("utf-8", "ignore")
+
         for df in pd.read_html(StringIO(html)):
-            for c in df.columns:
-                if str(c).lower() in ("ticker","symbol"):
-                    return df[c].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
-    except Exception: pass
-    return []
+            cols = [str(c).lower() for c in df.columns]
+            if "ticker" in cols:
+                col = df.columns[cols.index("ticker")]
+                return (
+                    df[col]
+                    .astype(str)
+                    .str.replace(".", "-", regex=False)
+                    .str.strip()
+                    .str.upper()
+                    .tolist()[:150]   # Nasdaq-focused universe size
+                )
+
+    except Exception:
+        pass
+
+    # Safe fallback
+    return ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA"]
+
 
 def fetch_core_etfs()->List[str]:
     return ["SPY","QQQ","IWM","DIA","VTI","VOO","GLD","SLV","USO","UNG","TLT","AGG","VNQ","XLF","XLK","XLE","XLY","XLV"]
@@ -1221,6 +1248,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
