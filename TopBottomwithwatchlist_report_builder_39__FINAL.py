@@ -267,19 +267,44 @@ def unique_tickers(ticker_list: List[str]) -> List[str]:
     return unique_list
 
 # -------------------- Universe builders --------------------
-def fetch_sp500()->List[str]:
-    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+def fetch_sp500() -> List[str]:
+    # NEXT-LEADER smart-money universe (early-stage candidates)
+    # Stocks with strong fundamentals but NOT yet leading
+    url = (
+        "https://finviz.com/screener.ashx?"
+        "v=111&"
+        "f=geo_usa,sh_price_o10,sh_avgvol_o500,"
+        "ta_sma200_a,ta_sma50_below&"
+        "o=-marketcap"
+    )
+
     try:
-        req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            html = resp.read().decode("utf-8","ignore")
+            html = resp.read().decode("utf-8", "ignore")
+
         for df in pd.read_html(StringIO(html)):
             cols = [str(c).lower() for c in df.columns]
-            if "symbol" in cols:
-                col = df.columns[cols.index("symbol")]
-                return df[col].astype(str).str.replace(".","-",regex=False).str.strip().str.upper().tolist()
-    except Exception: pass
+            if "ticker" in cols:
+                col = df.columns[cols.index("ticker")]
+                return (
+                    df[col]
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                    .tolist()[:400]
+                )
+
+    except Exception:
+        pass
+
+    # Safe fallback
     return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
+
 
 def fetch_nasdaq100()->List[str]:
     url = "https://en.wikipedia.org/wiki/NASDAQ-100"
@@ -1196,5 +1221,6 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
