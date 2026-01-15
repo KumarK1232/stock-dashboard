@@ -272,31 +272,25 @@ def unique_tickers(ticker_list: List[str]) -> List[str]:
     return unique_list
 
 # -------------------- Universe builders --------------------
-
-
-
-# Define timeout if not already defined
-REQUEST_TIMEOUT = 10 
+# Define timeout
+REQUEST_TIMEOUT = 15 
 
 def fetch_sp500() -> List[str]:
-    # Use a set to automatically avoid duplicates when combining lists
     combined_tickers = set()
     
     # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
     print("Starting Finviz fetch...")
     finviz_tickers = []
-    target_count = 200  # How many we want from Finviz
-    current_offset = 1  # Finviz 'r' parameter starts at 1
+    target_count = 200  
+    current_offset = 1  
     
-    # URL: USA, Price > $10, Vol > 500k, Sorted by Market Cap (Desc)
-    # NOTE: I removed 'ta_sma200_a,ta_sma50_below' to ensure you get full data.
-    # If you keep those strict filters, you will likely only ever get <10 results.
+    # URL with your specific technical filters
     base_finviz_url = (
         "https://finviz.com/screener.ashx?"
-            "v=111&"
-            "f=geo_usa,sh_price_o10,sh_avgvol_o800,"
-            "ta_sma200_a,ta_sma50_below&"
-            "o=-marketcap"
+        "v=111&"
+        "f=geo_usa,sh_price_o10,sh_avgvol_o800,"
+        "ta_sma200_a,ta_sma50_below&"
+        "o=-marketcap"
     )
 
     headers = {
@@ -305,53 +299,52 @@ def fetch_sp500() -> List[str]:
 
     try:
         while len(finviz_tickers) < target_count:
-            # Append the 'r' parameter for pagination (1, 21, 41...)
             page_url = f"{base_finviz_url}&r={current_offset}"
-            
             req = urllib.request.Request(page_url, headers=headers)
             
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                 html = resp.read().decode("utf-8", "ignore")
             
-            # Parse Tables
-            found_table = False
+            found_table_on_page = False
+            # Parse all tables on the page
             for df in pd.read_html(StringIO(html)):
-                # Normalize columns
                 cols = [str(c).lower() for c in df.columns]
                 
-                if "ticker" in cols:
-                    col_name = df.columns[cols.index("ticker")]
-                    # Extract tickers from this page
-                    page_tickers = (
-                        df[col_name]
-                        .astype(str)
-                        .str.strip()
-                        .str.upper()
-                        .tolist()
-                    )
+                # FIX: Check for 'ticker' AND ensure the table is the main one (usually 20 rows)
+                # This ignores the mini-tables with only 4-5 records.
+                if "ticker" in cols and len(df) > 10:
+                    col_idx = cols.index("ticker")
+                    col_name = df.columns[col_idx]
                     
-                    finviz_tickers.extend(page_tickers)
-                    found_table = True
-                    print(f"  Fetched batch starting at {current_offset}... (Total: {len(finviz_tickers)})")
-                    break
+                    # Extract and clean tickers
+                    raw_tickers = df[col_name].astype(str).str.strip().str.upper().tolist()
+                    
+                    # Clean the data: Remove the header row if it's repeated and filter garbage
+                    valid_page_tickers = [
+                        t for t in raw_tickers 
+                        if t != "TICKER" and 1 <= len(t) <= 6 and t.isalpha()
+                    ]
+                    
+                    if valid_page_tickers:
+                        finviz_tickers.extend(valid_page_tickers)
+                        found_table_on_page = True
+                        print(f"  Offset {current_offset}: Found {len(valid_page_tickers)} tickers. (Total: {len(finviz_tickers)})")
+                    break # Stop looking at other tables on this page
             
-            if not found_table or not page_tickers:
-                print("  No more data found or table parsing failed.")
+            # If we didn't find the main table or the page is empty, we've reached the end
+            if not found_table_on_page:
+                print(f"  No more results found at offset {current_offset}. Stopping Finviz fetch.")
                 break
                 
-            # Move offset for next page (Finviz displays 20 rows per page)
             current_offset += 20
+            time.sleep(1.5) # Anti-ban delay
             
-            # CRITICAL: Sleep to avoid 403 Forbidden / IP Ban
-            time.sleep(1.5) 
-            
-        # Limit to exact request if we went over
         finviz_tickers = finviz_tickers[:target_count]
         combined_tickers.update(finviz_tickers)
-        print(f"Successfully fetched {len(finviz_tickers)} tickers from Finviz.")
+        print(f"Successfully fetched {len(finviz_tickers)} unique tickers from Finviz.")
 
     except Exception as e:
-        print(f"Finviz fetch failed at offset {current_offset}: {e}")
+        print(f"Finviz fetch failed: {e}")
 
     # --- PART 2: FETCH FROM WIKIPEDIA ---
     try:
@@ -385,17 +378,15 @@ def fetch_sp500() -> List[str]:
         print("Both sources failed. Returning fallback list.")
         return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
     
-    print(f"Total unique tickers to scan: {len(combined_tickers)}")
-    return sorted(list(combined_tickers))
+    final_list = sorted(list(combined_tickers))
+    print(f"Total unique tickers to scan: {len(final_list)}")
+    return final_list
 
-# Ensure REQUEST_TIMEOUT is defined
 # Define timeout if not already defined
-REQUEST_TIMEOUT = 10 
+REQUEST_TIMEOUT = 15 
 
 def fetch_nasdaq100() -> List[str]:
     # NEXT-LEADER Nasdaq universe (early institutional setup)
-    # Strong Nasdaq stocks that are NOT yet extended
-    
     combined_tickers = set()
 
     # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
@@ -404,14 +395,13 @@ def fetch_nasdaq100() -> List[str]:
     target_count = 150  # Target cap for Finviz
     current_offset = 1  # Finviz 'r' parameter starts at 1
 
-    # URL: USA, Nasdaq, Price > $10, Vol > 700k, Sorted by Market Cap (Desc)
-    # NOTE: Strict SMA filters removed to ensure data population.
+    # URL: USA, Nasdaq, Price > $10, Vol > 500k, Technical Pullback filters
     base_finviz_url = (
         "https://finviz.com/screener.ashx?"
-            "v=111&"
-            "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500,"
-            "ta_sma200_a,ta_sma50_below&"
-            "o=-marketcap"
+        "v=111&"
+        "f=geo_usa,exch_nasd,sh_price_o10,sh_avgvol_o500,"
+        "ta_sma200_a,ta_sma50_below&"
+        "o=-marketcap"
     )
 
     headers = {
@@ -420,22 +410,25 @@ def fetch_nasdaq100() -> List[str]:
 
     try:
         while len(finviz_tickers) < target_count:
-            # Append pagination parameter
             page_url = f"{base_finviz_url}&r={current_offset}"
-            
             req = urllib.request.Request(page_url, headers=headers)
             
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                 html = resp.read().decode("utf-8", "ignore")
 
+            found_table_on_page = False
             # Parse Finviz Tables
-            found_table = False
             for df in pd.read_html(StringIO(html)):
                 cols = [str(c).lower() for c in df.columns]
                 
-                if "ticker" in cols:
-                    col_name = df.columns[cols.index("ticker")]
-                    page_tickers = (
+                # FIX: Check for 'ticker' AND ensure the table is the main one (len > 10)
+                # This bypasses the 4-row index/sidebar tables
+                if "ticker" in cols and len(df) > 10:
+                    col_idx = cols.index("ticker")
+                    col_name = df.columns[col_idx]
+                    
+                    # Extract and clean tickers
+                    raw_tickers = (
                         df[col_name]
                         .astype(str)
                         .str.replace(".", "-", regex=False)
@@ -444,29 +437,31 @@ def fetch_nasdaq100() -> List[str]:
                         .tolist()
                     )
                     
-                    finviz_tickers.extend(page_tickers)
-                    found_table = True
-                    print(f"  Fetched batch starting at {current_offset}... (Total: {len(finviz_tickers)})")
+                    # Filter for valid stock symbols only
+                    valid_page_tickers = [
+                        t for t in raw_tickers 
+                        if t != "TICKER" and 1 <= len(t) <= 6 and t.isalpha()
+                    ]
+                    
+                    if valid_page_tickers:
+                        finviz_tickers.extend(valid_page_tickers)
+                        found_table_on_page = True
+                        print(f"  Offset {current_offset}: Found {len(valid_page_tickers)} records. (Total: {len(finviz_tickers)})")
                     break
             
-            if not found_table or not page_tickers:
-                print("  No more data found or table parsing failed.")
+            if not found_table_on_page:
+                print(f"  No more matching results found at offset {current_offset}.")
                 break
             
-            # Increment offset (Finviz has 20 items per page)
             current_offset += 20
-            
-            # Sleep to respect rate limits
-            time.sleep(1.5)
+            time.sleep(1.5) # Anti-ban delay
 
-        # Trim to target if we over-fetched
         finviz_tickers = finviz_tickers[:target_count]
         combined_tickers.update(finviz_tickers)
-        print(f"Successfully fetched {len(finviz_tickers)} tickers from Finviz.")
+        print(f"Successfully fetched {len(finviz_tickers)} unique tickers from Finviz.")
 
     except Exception as e:
         print(f"Finviz fetch failed at offset {current_offset}: {e}")
-        # Continue to Wikipedia (do not return)
 
     # --- PART 2: FETCH FROM WIKIPEDIA ---
     try:
@@ -476,9 +471,7 @@ def fetch_nasdaq100() -> List[str]:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             html = resp.read().decode("utf-8", "ignore")
             
-        # Parse Wiki Tables
         for df in pd.read_html(StringIO(html)):
-            # Normalize column names to find 'ticker' or 'symbol'
             found_col = None
             for c in df.columns:
                 if str(c).lower() in ("ticker", "symbol"):
@@ -501,14 +494,15 @@ def fetch_nasdaq100() -> List[str]:
     except Exception as e:
         print(f"Wikipedia fetch failed: {e}")
 
-    # --- PART 3: RETURN COMBINED OR FALLBACK ---
+    # --- PART 3: RETURN COMBINED ---
     if not combined_tickers:
         print("Both sources failed. Returning fallback list.")
         return ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"]
 
-    print(f"Total unique tickers to scan: {len(combined_tickers)}")
-    # Return combined unique list
-    return sorted(list(combined_tickers))
+    final_list = sorted(list(combined_tickers))
+    print(f"Total unique tickers to scan: {len(final_list)}")
+    return final_list
+
 
 
 
@@ -1414,6 +1408,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
