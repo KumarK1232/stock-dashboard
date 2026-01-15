@@ -281,7 +281,7 @@ def fetch_sp500() -> List[str]:
     # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
     print("Starting Finviz fetch...")
     finviz_tickers = []
-    target_count = 200  
+    target_count = 400  
     current_offset = 1  
     
     # URL with your specific technical filters
@@ -392,7 +392,7 @@ def fetch_nasdaq100() -> List[str]:
     # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
     print("Starting Finviz Nasdaq fetch...")
     finviz_tickers = []
-    target_count = 150  # Target cap for Finviz
+    target_count = 300 # Target cap for Finviz
     current_offset = 1  # Finviz 'r' parameter starts at 1
 
     # URL: USA, Nasdaq, Price > $10, Vol > 500k, Technical Pullback filters
@@ -1408,6 +1408,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
