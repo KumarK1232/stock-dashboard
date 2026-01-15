@@ -278,13 +278,16 @@ REQUEST_TIMEOUT = 15
 def fetch_sp500() -> List[str]:
     combined_tickers = set()
     
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
     # --- PART 1: FETCH FROM FINVIZ (WITH PAGINATION) ---
     print("Starting Finviz fetch...")
     finviz_tickers = []
     target_count = 400  
     current_offset = 1  
     
-    # URL with your specific technical filters
     base_finviz_url = (
         "https://finviz.com/screener.ashx?"
         "v=111&"
@@ -293,95 +296,109 @@ def fetch_sp500() -> List[str]:
         "o=-marketcap"
     )
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-
     try:
         while len(finviz_tickers) < target_count:
             page_url = f"{base_finviz_url}&r={current_offset}"
             req = urllib.request.Request(page_url, headers=headers)
-            
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                 html = resp.read().decode("utf-8", "ignore")
             
             found_table_on_page = False
-            # Parse all tables on the page
             for df in pd.read_html(StringIO(html)):
                 cols = [str(c).lower() for c in df.columns]
-                
-                # FIX: Check for 'ticker' AND ensure the table is the main one (usually 20 rows)
-                # This ignores the mini-tables with only 4-5 records.
                 if "ticker" in cols and len(df) > 10:
                     col_idx = cols.index("ticker")
                     col_name = df.columns[col_idx]
-                    
-                    # Extract and clean tickers
                     raw_tickers = df[col_name].astype(str).str.strip().str.upper().tolist()
-                    
-                    # Clean the data: Remove the header row if it's repeated and filter garbage
-                    valid_page_tickers = [
-                        t for t in raw_tickers 
-                        if t != "TICKER" and 1 <= len(t) <= 6 and t.isalpha()
-                    ]
-                    
+                    valid_page_tickers = [t for t in raw_tickers if t != "TICKER" and 1 <= len(t) <= 6 and t.isalpha()]
                     if valid_page_tickers:
                         finviz_tickers.extend(valid_page_tickers)
                         found_table_on_page = True
-                        print(f"  Offset {current_offset}: Found {len(valid_page_tickers)} tickers. (Total: {len(finviz_tickers)})")
-                    break # Stop looking at other tables on this page
+                        print(f"  Finviz Offset {current_offset}: Found {len(valid_page_tickers)} tickers.")
+                    break 
             
-            # If we didn't find the main table or the page is empty, we've reached the end
-            if not found_table_on_page:
-                print(f"  No more results found at offset {current_offset}. Stopping Finviz fetch.")
-                break
-                
+            if not found_table_on_page: break
             current_offset += 20
-            time.sleep(1.5) # Anti-ban delay
+            time.sleep(1.5) 
             
-        finviz_tickers = finviz_tickers[:target_count]
-        combined_tickers.update(finviz_tickers)
-        print(f"Successfully fetched {len(finviz_tickers)} unique tickers from Finviz.")
-
+        combined_tickers.update(finviz_tickers[:target_count])
     except Exception as e:
         print(f"Finviz fetch failed: {e}")
 
     # --- PART 2: FETCH FROM WIKIPEDIA ---
     try:
+        print("Starting Wikipedia fetch...")
         wiki_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        req = urllib.request.Request(wiki_url, headers={"User-Agent": "Mozilla/5.0"})
-        
+        req = urllib.request.Request(wiki_url, headers=headers)
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             html = resp.read().decode("utf-8", "ignore")
-        
         for df in pd.read_html(StringIO(html)):
             cols = [str(c).lower() for c in df.columns]
             if "symbol" in cols:
-                col = df.columns[cols.index("symbol")]
-                tickers = (
-                    df[col]
-                    .astype(str)
-                    .str.replace(".", "-", regex=False)
-                    .str.strip()
-                    .str.upper()
-                    .tolist()
-                )
+                tickers = df[df.columns[cols.index("symbol")]].astype(str).str.replace(".", "-", regex=False).str.strip().str.upper().tolist()
                 combined_tickers.update(tickers)
                 print(f"Successfully fetched {len(tickers)} tickers from Wikipedia.")
                 break
-                
     except Exception as e:
         print(f"Wikipedia fetch failed: {e}")
 
-    # --- PART 3: RETURN COMBINED ---
+    # --- PART 3: FETCH FROM YAHOO FINANCE (UNDERVALUED GROWTH) ---
+    try:
+        print("Starting Yahoo Finance fetch...")
+        yahoo_base_url = "https://finance.yahoo.com/research-hub/screener/undervalued_growth_stocks/"
+        yahoo_offset = 0
+        yahoo_count_per_page = 100
+        yahoo_found_total = 0
+
+        while True:
+            # Construct URL with offset pagination
+            yahoo_url = f"{yahoo_base_url}?start={yahoo_offset}&count={yahoo_count_per_page}"
+            req = urllib.request.Request(yahoo_url, headers=headers)
+            
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                html = resp.read().decode("utf-8", "ignore")
+            
+            found_on_this_page = False
+            # Yahoo often hides data in tables; pandas read_html is efficient here
+            for df in pd.read_html(StringIO(html)):
+                cols = [str(c).lower() for c in df.columns]
+                # Yahoo usually uses "Symbol" or "Ticker"
+                if any(x in cols for x in ["symbol", "ticker"]):
+                    col_idx = next(i for i, c in enumerate(cols) if c in ["symbol", "ticker"])
+                    col_name = df.columns[col_idx]
+                    
+                    y_tickers = df[col_name].astype(str).str.strip().str.upper().tolist()
+                    # Filter out any non-ticker strings
+                    valid_y = [t for t in y_tickers if 1 <= len(t) <= 6 and t.isalpha()]
+                    
+                    if valid_y:
+                        combined_tickers.update(valid_y)
+                        yahoo_found_total += len(valid_y)
+                        found_on_this_page = True
+                        print(f"  Yahoo Offset {yahoo_offset}: Found {len(valid_y)} tickers.")
+                    break
+
+            # If no tickers found or we got a partial page, we've hit the end
+            if not found_on_this_page or len(valid_y) < yahoo_count_per_page:
+                break
+            
+            yahoo_offset += yahoo_count_per_page
+            time.sleep(1.0) # Prevent rate limiting
+
+        print(f"Successfully fetched {yahoo_found_total} tickers from Yahoo Finance.")
+
+    except Exception as e:
+        print(f"Yahoo Finance fetch failed: {e}")
+
+    # --- PART 4: RETURN COMBINED ---
     if not combined_tickers:
-        print("Both sources failed. Returning fallback list.")
+        print("All sources failed. Returning fallback list.")
         return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
     
     final_list = sorted(list(combined_tickers))
     print(f"Total unique tickers to scan: {len(final_list)}")
     return final_list
-
+    
 # Define timeout if not already defined
 REQUEST_TIMEOUT = 15 
 
@@ -1408,6 +1425,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
