@@ -80,7 +80,7 @@ DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 USE_WATCHLIST_EXCEL = True
 
 # --- SIZE OPTIMIZATION SETTINGS ---
-UNIVERSE_LIMIT = 400          
+UNIVERSE_LIMIT = 800          
 MAX_HISTORY_DAILY = 252       
 MAX_HISTORY_INTRADAY = 150    
 EAGER_RENDER_FIRST_N = 18
@@ -1425,6 +1425,7 @@ if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
     main()
+
 
 
 
