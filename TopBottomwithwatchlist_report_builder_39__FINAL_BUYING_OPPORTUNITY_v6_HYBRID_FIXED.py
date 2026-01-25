@@ -1127,66 +1127,91 @@ def analyze_ticker(ticker:str, entry_data: Optional[Dict[str, Any]] = None) -> O
         return None
 
 # -------------------- HTML / JS --------------------
-def _df_to_payload(df:pd.DataFrame, max_bars:int=252)->Dict[str,Any]:
+def _df_to_payload(df: pd.DataFrame, max_bars: int = 252) -> Dict[str, Any]:
+    """
+    High-Performance Payload Generator.
+    - Uses vectorization for speed (no slow loops).
+    - Rounds to 2 decimals to create 'Baby Size' output files.
+    - Handles Volume as integers to save space.
+    """
     if df is None or df.empty: return {}
-    d = df.copy().tail(max_bars).reset_index(drop=True)
-    labels = []
-    is_intraday = False
-    if len(d) > 1:
-        try:
-            time_delta = d['Date'].iloc[1] - d['Date'].iloc[0]
-            if time_delta < timedelta(days=1): is_intraday = True
-        except: pass
-    date_format = "%Y-%m-%d %H:%M" if is_intraday else "%Y-%m-%d"
-    for x in d['Date'].tolist():
-        try: labels.append(x.strftime(date_format))
-        except: labels.append(str(x))
     
-    def rnd(x): return round(float(x), 2) if (x is not None and not pd.isna(x)) else None
+    # 1. Slice efficiently (No expensive .copy())
+    d = df.iloc[-max_bars:]
+    
+    # 2. Fast Vectorized Cleaning
+    # Rounds to 2 decimals, converts NaN to None (null in JSON)
+    def clean(series):
+        return series.round(2).where(pd.notnull(series), None).tolist()
+
+    # 3. Optimized Date Formatting
+    # Detects if we need Intraday (minutes) or Daily (Y-M-D) format based on the first two rows
+    try:
+        is_intraday = False
+        if len(d) > 1:
+            diff = d['Date'].iloc[1] - d['Date'].iloc[0]
+            if diff.total_seconds() < 86400: is_intraday = True
+        
+        fmt = '%Y-%m-%d %H:%M' if is_intraday else '%Y-%m-%d'
+        labels = d['Date'].dt.strftime(fmt).tolist()
+    except:
+        labels = d['Date'].astype(str).tolist()
 
     return {
         "labels": labels,
-        "open": [rnd(x) for x in d['Open'].tolist()],
-        "high": [rnd(x) for x in d['High'].tolist()],
-        "low": [rnd(x) for x in d['Low'].tolist()],
-        "close": [rnd(x) for x in d['Close'].tolist()],
-        "volume": [int(x) if not pd.isna(x) else 0 for x in d['Volume'].tolist()],
-        "bb_upper": [rnd(x) for x in (d.get('BB_upper', pd.Series([np.nan]*len(d))).tolist())],
-        "bb_mid": [rnd(x) for x in (d.get('BB_mid', pd.Series([np.nan]*len(d))).tolist())],
-        "bb_lower": [rnd(x) for x in (d.get('BB_lower', pd.Series([np.nan]*len(d))).tolist())]
+        "open": clean(d['Open']),
+        "high": clean(d['High']),
+        "low": clean(d['Low']),
+        "close": clean(d['Close']),
+        "volume": d['Volume'].fillna(0).astype(int).tolist() # Saving volume as int saves huge space
     }
 
-def _df_to_table_data(df:pd.DataFrame, num_rows:int)->Dict[str,Any]:
+def _df_to_table_data(df: pd.DataFrame, num_rows: int = 30) -> Dict[str, Any]:
+    """
+    High-Performance Table Data Generator.
+    - Reduces output size by strictly limiting rows and precision.
+    """
     if df is None or df.empty: return {}
-    d = df.copy().tail(num_rows).reset_index(drop=True)
-    is_intraday = False
-    if len(d) > 1:
-        try:
-            time_delta = d['Date'].iloc[1] - d['Date'].iloc[0]
-            if time_delta < timedelta(days=1): is_intraday = True
-        except: pass
-    date_format = "%Y-%m-%d %H:%M" if is_intraday else "%Y-%m-%d"
-    labels = []
-    for x in d['Date'].tolist():
-        try: labels.append(x.strftime(date_format))
-        except: labels.append(str(x))
-    def rnd(x): return round(float(x), 2) if (x is not None and not pd.isna(x)) else None
+    d = df.iloc[-num_rows:]
+    
+    def clean(series):
+        return series.round(2).where(pd.notnull(series), None).tolist()
+
+    # Fast Date Formatting
+    try:
+        labels = d['Date'].dt.strftime('%Y-%m-%d %H:%M').tolist()
+    except:
+        labels = d['Date'].astype(str).tolist()
+
     return {
-        "labels": labels, 
-        "open": [rnd(x) for x in d['Open'].tolist()],
-        "high": [rnd(x) for x in d['High'].tolist()],
-        "low": [rnd(x) for x in d['Low'].tolist()],
-        "close": [rnd(x) for x in d['Close'].tolist()],
-        "volume": [int(x) if not pd.isna(x) else 0 for x in d['Volume'].tolist()]
+        "labels": labels,
+        "open": clean(d['Open']),
+        "high": clean(d['High']),
+        "low": clean(d['Low']),
+        "close": clean(d['Close']),
+        "volume": d['Volume'].fillna(0).astype(int).tolist()
     }
 
-def make_inline_payload_js(div_id:str, chart_payload:Dict[str,Any], markers:List[Dict[str,Any]]=None, table_data:Dict[str,Any]=None)->str:
+def make_inline_payload_js(div_id: str, chart_payload: Dict[str, Any], markers: List[Dict[str, Any]] = None, table_data: Dict[str, Any] = None) -> str:
+    """
+    JSON Minifier.
+    - Compresses the data string by removing all whitespace.
+    - This is the #1 factor in reducing file size ("Baby Size").
+    """
     try:
-        obj = {"data": chart_payload, "markers": markers or [], "tableData": table_data or {}}
-        js = "window._tb_chart_payloads = window._tb_chart_payloads || {};\n"
-        js += f"window._tb_chart_payloads['{div_id}'] = {json.dumps(obj, separators=(',', ':'))};\n"
-        return "<script>" + js + "</script>"
+        obj = {
+            "data": chart_payload, 
+            "markers": markers or [], 
+            "tableData": table_data or {}
+        }
+        # separators=(',', ':') removes all spaces after commas/colons
+        # Example: {"a": 1} becomes {"a":1}
+        json_str = json.dumps(obj, separators=(',', ':'))
+        return f"<script>window._tb_chart_payloads=window._tb_chart_payloads||{{}};window._tb_chart_payloads['{div_id}']={json_str};</script>"
     except Exception: return ""
+
+
+
 
 def generate_html_page(page_type, data_groups, outpath, nav_link, source_info, timestamp_str, report_js_template, existing_favorites=None):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
