@@ -48,7 +48,7 @@ SCRIPT_VERSION = "vFinal30-InboxFixed-Repaired"
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
 SENDER_EMAIL = "stockusals@gmail.com"
-INBOX_LOOKBACK_DAYS = 1
+INBOX_LOOKBACK_DAYS = 30
 
 # --- PRICE TREND CONFIG ---
 PRICE_TREND_DAYS = [2, 3, 5, 7, 9, 11, 15, 30, 60, 90, 180, 360]
@@ -80,7 +80,7 @@ ENABLE_CSV_EXPORT = False
 ENABLE_Sector = False
 
 # --- SIZE OPTIMIZATION SETTINGS ---
-UNIVERSE_LIMIT = 100       
+UNIVERSE_LIMIT = 1000       
 MAX_HISTORY_DAILY = 252       
 MAX_HISTORY_INTRADAY = 150    
 EAGER_RENDER_FIRST_N = 18
@@ -2978,4 +2978,5 @@ def market_is_open():
 if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
     else: logger.info("Market is OPEN.")
+
     main()
