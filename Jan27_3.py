@@ -80,7 +80,7 @@ ENABLE_CSV_EXPORT = False
 ENABLE_Sector = False
 
 # --- SIZE OPTIMIZATION SETTINGS ---
-UNIVERSE_LIMIT = 1000       
+UNIVERSE_LIMIT = 2000       
 MAX_HISTORY_DAILY = 252       
 MAX_HISTORY_INTRADAY = 150    
 EAGER_RENDER_FIRST_N = 18
@@ -454,8 +454,73 @@ def fetch_nasdaq100() -> List[str]:
         return ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"]
     return sorted(list(combined_tickers))
 
-def fetch_core_etfs()->List[str]:
-    return ["SPY","QQQ","IWM","DIA","VTI","VOO","GLD","SLV","USO","UNG","TLT","AGG","VNQ","XLF","XLK","XLE","XLY","XLV"]
+def fetch_core_etfs() -> List[str]:
+    # 1. Hardcoded Core ETFs
+    core_etfs = [
+        "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "GLD", "SLV", 
+        "USO", "UNG", "TLT", "AGG", "VNQ", "XLF", "XLK", "XLE", 
+        "XLY", "XLV"
+    ]
+    
+    # 2. Scrape "Most Active" (with pagination to get all records)
+    active_tickers = []
+    base_url = "https://finance.yahoo.com/markets/stocks/most-active/"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    offset = 0
+    count = 100  # Yahoo allows fetching 100 rows per page
+    
+    try:
+        while True:
+            # Query with offset and count to get all pages (0-100, 100-200, etc.)
+            params = {"start": offset, "count": count}
+            
+            response = requests.get(base_url, headers=headers, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                break
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            rows = soup.select('table tbody tr')
+            
+            # If no rows returned, we are done
+            if not rows:
+                break
+            
+            page_tickers = []
+            for row in rows:
+                # Symbol is usually the first link or span in the row
+                symbol_tag = row.select_one('td span.symbol, td a')
+                if symbol_tag:
+                    ticker = symbol_tag.text.strip()
+                    # Filter out garbage data or long strings
+                    if ticker and ticker.isalpha():
+                        page_tickers.append(ticker)
+            
+            if not page_tickers:
+                break
+                
+            active_tickers.extend(page_tickers)
+            
+            # If we got fewer records than the 'count', we are on the last page
+            if len(page_tickers) < count:
+                break
+                
+            offset += count
+            time.sleep(0.5) # Slight pause to avoid rate limits
+
+    except Exception:
+        # If scraping fails entirely, pass silently and return just the core list
+        pass
+
+    # 3. Combine, deduplicate, and sort
+    final_list = list(set(core_etfs + active_tickers))
+    final_list.sort()
+    
+    return final_list
 
 def fetch_leverage_etfs()->List[str]:
     return sorted(list({"TQQQ","SQQQ","SPXL","SPXS","UPRO","SPXU","SOXL","SOXS","FNGU","FNGD","TNA","TZA","SSO","SDS","UDOW","SDOW","TMF","TMV","LABU","LABD","TECL","TECS","DDM","DUST"}))
@@ -2980,3 +3045,4 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
