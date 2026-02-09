@@ -2734,7 +2734,7 @@ def main():
                     if tags or (ticker in watchlist_tickers) or (ticker in favorite_tickers) or (ticker in inbox_tickers):
                         results.append(result)
                     if "BUYING_OPPORTUNITY" in result.get("tags", []):
-                        logger.info(f"Buying opportunity found: {ticker}")
+                        # logger.info(f"Buying opportunity found: {ticker}")
             except Exception as e:
                 logger.error(f"Worker error for {ticker}: {e}")
             finally:
@@ -3046,5 +3046,6 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
