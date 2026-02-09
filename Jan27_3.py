@@ -1602,18 +1602,19 @@ def analyze_ticker(ticker: str, entry_data: Optional[Dict[str, Any]] = None) -> 
             result["entry_price"] = entry_data.get("price")
             result["entry_date"] = entry_data.get("date")
 
-        print(
-            result["ticker"],
-            result["tags"],
-            result["daily_signal"],
-            result["weekly_signal"],
-            result["intraday_signal"],
-            result["monthly_signal"],
-            result["quarterly_signal"],
-            result["mtf_align"],
-            result["confidence"],
-        )
-
+        """
+            print(
+                        result["ticker"],
+                        result["tags"],
+                        result["daily_signal"],
+                        result["weekly_signal"],
+                        result["intraday_signal"],
+                        result["monthly_signal"],
+                        result["quarterly_signal"],
+                        result["mtf_align"],
+                        result["confidence"],
+                    )
+     """
         return result
 
     except Exception as e:
@@ -3045,4 +3046,5 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
