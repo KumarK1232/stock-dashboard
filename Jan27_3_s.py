@@ -81,7 +81,7 @@ ENABLE_CSV_EXPORT = False
 ENABLE_Sector = False
 
 # --- SIZE OPTIMIZATION SETTINGS ---
-UNIVERSE_LIMIT = 2000       
+UNIVERSE_LIMIT = 1000       
 MAX_HISTORY_DAILY = 252       
 MAX_HISTORY_INTRADAY = 150    
 EAGER_RENDER_FIRST_N = 18
@@ -3261,6 +3261,7 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
 
