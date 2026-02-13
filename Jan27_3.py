@@ -1085,7 +1085,7 @@ def analyze_ticker(ticker: str, entry_data: Optional[Dict[str, Any]] = None) -> 
         # -------------------------------------------------------
         # DAILY SIGNALS
         # -------------------------------------------------------
-       daily_signal = False
+        daily_signal = False
         daily_bear_signal = False
         
         # 1. Run the Scalper Calculation on our data
@@ -3101,6 +3101,7 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
 
