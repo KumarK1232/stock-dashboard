@@ -1789,13 +1789,14 @@ sector_manager = SectorGenius()
 
 import pandas as pd
 import requests
-import logging
+import time
 
 def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str = None) -> bool:
     """
-    Terminal-Optimized Scanner:
-    - Uses GitHub-hosted sector data to avoid Yahoo rate limits.
-    - Forces scalar comparisons to fix 'identically-labeled Series' crash.
+    Terminal-Optimized Scanner (Modernized):
+    - Fixes FutureWarnings using explicit .iloc[-1] and .item().
+    - GitHub Sector Data with 3x Retry Logic.
+    - Forces scalar math to prevent comparison crashes.
     """
     # --- 1. DATA VALIDATION & TICKER IDENTIFICATION ---
     ticker = (ticker_name or getattr(df, 'ticker', None) or "UNKNOWN").upper()
@@ -1803,76 +1804,86 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
     if df is None or df.empty or len(df) < 50:
         return False
 
-    # --- 2. SECTOR ANALYSIS (GITHUB DATASET) ---
+    # --- 2. SECTOR ANALYSIS (GITHUB DATASET WITH RETRY) ---
     if not hasattr(detect_buying_opportunity, "sector_map"):
-        # Fetching a public ticker-to-sector mapping to avoid Yahoo 429/401 errors
         GITHUB_URL = "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/all/all_tickers.json"
-        try:
-            resp = requests.get(GITHUB_URL, timeout=5)
-            data = resp.json()
-            # Map symbol to sector
-            detect_buying_opportunity.sector_map = {item['symbol']: item.get('sector', 'UNKNOWN') for item in data}
-        except:
-            detect_buying_opportunity.sector_map = {}
+        detect_buying_opportunity.sector_map = {}
+        for attempt in range(3):
+            try:
+                resp = requests.get(GITHUB_URL, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    detect_buying_opportunity.sector_map = {item['symbol']: item.get('sector', 'UNKNOWN') for item in data}
+                    print("📦 Sector Database Loaded Successfully.")
+                    break
+            except Exception:
+                if attempt < 2:
+                    print(f"⚠️ Sector Map Fetch Failed. Retrying ({attempt+2}/3)...")
+                    time.sleep(2)
 
     stock_sector = detect_buying_opportunity.sector_map.get(ticker, 'UNKNOWN')
     
-    # Logic: Proceed if Sector is Unknown (Bypass) or if we wanted to filter by Top Sectors
-    # For now, we print status and proceed as requested.
+    # Bypass logic: Print status and proceed
     if stock_sector == 'UNKNOWN':
         print(f"🔍 {ticker}: Sector Unknown. Proceeding to normal technical detection...")
     else:
-        print(f"✅ {ticker}: Sector recognized as '{stock_sector}'. Checking technicals...")
+        print(f"✅ {ticker}: Sector '{stock_sector}'. Checking technicals...")
 
-    # --- 3. TREND ANALYSIS (Fixing the Comparison Crash) ---
-    # Ensure EMAs exist
-    if 'ema20' not in df.columns and 'EMA20' not in df.columns:
-        df['ema20'] = df['Close'].ewm(span=20, adjust=False).mean()
-    if 'ema50' not in df.columns and 'EMA50' not in df.columns:
-        df['ema50'] = df['Close'].ewm(span=50, adjust=False).mean()
-
-    # EXTRACT SCALARS: This prevents the "identically-labeled Series" error
+    # --- 3. TREND ANALYSIS (Fixed FutureWarnings) ---
     try:
-        last = df.iloc[-1]
-        close = float(last["Close"])
-        ema20 = float(last.get("EMA20") if last.get("EMA20") is not None else last.get("ema20"))
-        ema50 = float(last.get("EMA50") if last.get("EMA50") is not None else last.get("ema50"))
+        # Standardize EMA columns
+        for col in ['ema20', 'ema50']:
+            if col not in df.columns and col.upper() not in df.columns:
+                span = 20 if '20' in col else 50
+                df[col] = df['Close'].ewm(span=span, adjust=False).mean()
+
+        # FIXED SYNTAX: Explicitly grab the last value as a scalar to avoid Warnings
+        last_idx = df.index[-1]
+        close = float(df.loc[last_idx, "Close"])
         
-        # Core Uptrend Filter
-        is_uptrend = close > ema20 > ema50
-        if not is_uptrend:
+        # Helper to grab EMA regardless of casing
+        get_ema = lambda s: df.loc[last_idx, s] if s in df.columns else df.loc[last_idx, s.upper()]
+        ema20 = float(get_ema('ema20'))
+        ema50 = float(get_ema('ema50'))
+        
+        # Comparison logic: Scalar vs Scalar
+        if not (close > ema20 > ema50):
             print(f"📉 {ticker}: Rejected - No Uptrend (Price {close:.2f} must be > EMA20 > EMA50).")
             return False
     except Exception as e:
-        print(f"❌ Error calculating trend for {ticker}: {e}")
+        print(f"❌ Error in trend calculation for {ticker}: {e}")
         return False
 
     # --- 4. SIGNAL GENERATION ---
     sigs = []
-    rsi = float(last.get("RSI") or last.get("rsi") or 50)
-    volume = float(last.get("Volume", 0))
-    vol_avg = float(df["Volume"].rolling(20).mean().iloc[-1]) if "Volume" in df else 1.0
     
-    # A. Squeeze Logic
+    # RSI & Volume (Scalar extraction)
+    rsi_val = last.get("RSI") or last.get("rsi") or 50
+    rsi = float(rsi_val.iloc[0]) if isinstance(rsi_val, pd.Series) else float(rsi_val)
+    
+    volume = float(df.loc[last_idx, "Volume"])
+    vol_avg = float(df["Volume"].rolling(20).mean().iloc[-1])
+    
+    # A. Squeeze Logic (Bollinger Bands vs Keltner Channels)
     # 
     squeeze_triggered = False
-    if 'ATR' not in df.columns and 'atr' not in df.columns:
+    if 'atr' not in df.columns and 'ATR' not in df.columns:
         df['atr'] = (df['High'] - df['Low']).rolling(14).mean()
 
     recent_rows = df.iloc[-6:]
     for _, row in recent_rows.iterrows():
-        # Force all to float for comparison safety
         bu = row.get("BB_upper")
         bl = row.get("BB_lower")
         bm = row.get("BB_mid")
         atr_val = row.get("ATR") or row.get("atr")
         
         if all(v is not None for v in [bu, bl, bm, atr_val]):
+            # Verify squeeze: Bollinger Bands inside 1.5 ATR Keltner Channels
             if float(bu) < (float(bm) + float(atr_val) * 1.5) and float(bl) > (float(bm) - float(atr_val) * 1.5):
                 squeeze_triggered = True
                 break
     
-    # Breakout check
+    # Breakout check: Last close above the 20-period high
     high_20 = float(df["High"].shift(1).rolling(20).max().iloc[-1])
     breakout = (close > high_20) and (rsi > 55)
 
@@ -1880,16 +1891,24 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
         sigs.append("Squeeze_Breakout")
 
     # B. Institutional Accumulation
-    day_range = float(last["High"]) - float(last["Low"])
-    close_loc = (close - float(last["Low"])) / day_range if day_range > 0 else 0
+    high_last = float(df.loc[last_idx, "High"])
+    low_last = float(df.loc[last_idx, "Low"])
+    day_range = high_last - low_last
+    close_loc = (close - low_last) / day_range if day_range > 0 else 0
+    
     if (volume > vol_avg * 1.3) and (close_loc > 0.70):
         sigs.append("Institutional_Buy")
 
-    # C. Pivot Reversal (The TTM Scalper signal)
+    # C. Pivot Reversal (TTM Scalper)
     # 
-    prev = df.iloc[-2]
-    prev2 = df.iloc[-3]
-    if (float(prev["Low"]) < float(prev2["Low"])) and (close > float(prev["High"])) and (rsi > 50):
+    prev_idx = df.index[-2]
+    prev2_idx = df.index[-3]
+    
+    p_low = float(df.loc[prev_idx, "Low"])
+    p2_low = float(df.loc[prev2_idx, "Low"])
+    p_high = float(df.loc[prev_idx, "High"])
+
+    if (p_low < p2_low) and (close > p_high) and (rsi > 50):
         sigs.append("Pivot_Reversal")
 
     # --- 5. FINAL DECISION ---
@@ -1897,10 +1916,9 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
         print(f"🚀 BUY SIGNAL: {ticker} | Triggers: {', '.join(sigs)}")
         return True
     else:
-        print(f"💤 {ticker}: Passed trend filter, but no active signals found.")
+        print(f"💤 {ticker}: Passed trend filter, but no breakout/squeeze signals found.")
 
     return False
-
 
 
 
@@ -3269,6 +3287,7 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
 
