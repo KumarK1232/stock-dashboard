@@ -1794,17 +1794,17 @@ import time
 def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str = None) -> bool:
     """
     Terminal-Optimized Scanner:
-    - Fixed UndefinedVariable 'last'.
-    - Fixed FutureWarnings using explicit .iloc and scalar extraction.
+    - SILENCED all FutureWarnings using .item() for scalar conversion.
+    - Fixed Pylance 'undefined last' error.
     - GitHub Sector Data with 3x Retry Logic.
     """
-    # --- 1. DATA VALIDATION & TICKER IDENTIFICATION ---
+    # --- 1. DATA VALIDATION ---
     ticker = (ticker_name or getattr(df, 'ticker', None) or "UNKNOWN").upper()
     
     if df is None or df.empty or len(df) < 50:
         return False
 
-    # --- 2. SECTOR ANALYSIS (GITHUB DATASET WITH RETRY) ---
+    # --- 2. SECTOR ANALYSIS (GITHUB DATASET) ---
     if not hasattr(detect_buying_opportunity, "sector_map"):
         GITHUB_URL = "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/all/all_tickers.json"
         detect_buying_opportunity.sector_map = {}
@@ -1817,12 +1817,11 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
                     print("📦 Sector Database Loaded Successfully.")
                     break
             except Exception:
-                if attempt < 2:
-                    time.sleep(2)
+                time.sleep(1)
 
     stock_sector = detect_buying_opportunity.sector_map.get(ticker, 'UNKNOWN')
     
-    # --- 3. TREND ANALYSIS (SCALAR FORCED) ---
+    # --- 3. TREND ANALYSIS (Warning-Proof) ---
     try:
         # Standardize EMA columns
         for col in ['ema20', 'ema50']:
@@ -1830,33 +1829,35 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
                 span = 20 if '20' in col else 50
                 df[col] = df['Close'].ewm(span=span, adjust=False).mean()
 
-        # FIX: Define 'last' row to resolve the Pylance error
-        last = df.iloc[-1]
-        last_idx = df.index[-1]
+        # FIXED: Extraction using .item() to avoid FutureWarnings
+        last_row = df.iloc[-1:] # Keeps it as a DataFrame slice
         
-        close = float(last["Close"])
+        close = float(last_row["Close"].item())
         
-        # Helper to grab EMA regardless of casing
-        ema20_val = last.get("EMA20") if last.get("EMA20") is not None else last.get("ema20")
-        ema50_val = last.get("EMA50") if last.get("EMA50") is not None else last.get("ema50")
+        # Casing check for EMAs
+        e20_col = 'EMA20' if 'EMA20' in df.columns else 'ema20'
+        e50_col = 'EMA50' if 'EMA50' in df.columns else 'ema50'
         
-        ema20 = float(ema20_val)
-        ema50 = float(ema50_val)
+        ema20 = float(last_row[e20_col].item())
+        ema50 = float(last_row[e50_col].item())
         
         if not (close > ema20 > ema50):
             return False
+            
     except Exception:
         return False
 
     # --- 4. SIGNAL GENERATION ---
     sigs = []
     
-    # RSI Extraction (Ensuring scalar to stop FutureWarnings)
-    rsi_raw = last.get("RSI") or last.get("rsi") or 50
-    rsi = float(rsi_raw.iloc[0]) if isinstance(rsi_raw, pd.Series) else float(rsi_raw)
+    # RSI Extraction
+    rsi_col = 'RSI' if 'RSI' in df.columns else 'rsi'
+    rsi = 50.0
+    if rsi_col in df.columns:
+        rsi = float(last_row[rsi_col].item())
     
-    volume = float(last["Volume"])
-    vol_avg = float(df["Volume"].rolling(20).mean().iloc[-1])
+    volume = float(last_row["Volume"].item())
+    vol_avg = float(df["Volume"].rolling(20).mean().iloc[-1:].item())
     
     # A. Squeeze Logic
     # 
@@ -1865,35 +1866,39 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
     if atr_col not in df.columns:
         df[atr_col] = (df['High'] - df['Low']).rolling(14).mean()
 
-    recent_rows = df.iloc[-6:]
-    for _, row in recent_rows.iterrows():
+    # Look back 6 periods for a squeeze
+    recent = df.tail(6)
+    for i in range(len(recent)):
+        row = recent.iloc[i]
         bu, bl, bm = row.get("BB_upper"), row.get("BB_lower"), row.get("BB_mid")
-        atr_val = row.get(atr_col)
+        atr_v = row.get(atr_col)
         
-        if all(v is not None and not pd.isna(v) for v in [bu, bl, bm, atr_val]):
-            if float(bu) < (float(bm) + float(atr_val) * 1.5) and float(bl) > (float(bm) - float(atr_val) * 1.5):
+        if all(v is not None and not pd.isna(v) for v in [bu, bl, bm, atr_v]):
+            if float(bu) < (float(bm) + float(atr_v) * 1.5) and float(bl) > (float(bm) - float(atr_v) * 1.5):
                 squeeze_triggered = True
                 break
     
     # Breakout check
-    high_20 = float(df["High"].shift(1).rolling(20).max().iloc[-1])
+    high_20 = float(df["High"].shift(1).rolling(20).max().iloc[-1:].item())
     breakout = (close > high_20) and (rsi > 55)
 
     if squeeze_triggered and breakout: 
         sigs.append("Squeeze_Breakout")
 
     # B. Institutional Accumulation
-    day_range = float(last["High"]) - float(last["Low"])
-    close_loc = (close - float(last["Low"])) / day_range if day_range > 0 else 0
+    h, l = float(last_row["High"].item()), float(last_row["Low"].item())
+    day_range = h - l
+    close_loc = (close - l) / day_range if day_range > 0 else 0
     if (volume > vol_avg * 1.3) and (close_loc > 0.70):
         sigs.append("Institutional_Buy")
 
     # C. Pivot Reversal (TTM Scalper)
     # 
-    prev = df.iloc[-2]
-    prev2 = df.iloc[-3]
+    prev = df.iloc[-2:-1]
+    prev2 = df.iloc[-3:-2]
     
-    if (float(prev["Low"]) < float(prev2["Low"])) and (close > float(prev["High"])) and (rsi > 50):
+    if (float(prev["Low"].item()) < float(prev2["Low"].item())) and \
+       (close > float(prev["High"].item())) and (rsi > 50):
         sigs.append("Pivot_Reversal")
 
     # --- 5. FINAL OUTPUT ---
@@ -3270,6 +3275,7 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
 
