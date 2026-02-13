@@ -1793,10 +1793,10 @@ import time
 
 def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str = None) -> bool:
     """
-    Terminal-Optimized Scanner (Modernized):
-    - Fixes FutureWarnings using explicit .iloc[-1] and .item().
+    Terminal-Optimized Scanner:
+    - Fixed UndefinedVariable 'last'.
+    - Fixed FutureWarnings using explicit .iloc and scalar extraction.
     - GitHub Sector Data with 3x Retry Logic.
-    - Forces scalar math to prevent comparison crashes.
     """
     # --- 1. DATA VALIDATION & TICKER IDENTIFICATION ---
     ticker = (ticker_name or getattr(df, 'ticker', None) or "UNKNOWN").upper()
@@ -1818,18 +1818,11 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
                     break
             except Exception:
                 if attempt < 2:
-                    print(f"⚠️ Sector Map Fetch Failed. Retrying ({attempt+2}/3)...")
                     time.sleep(2)
 
     stock_sector = detect_buying_opportunity.sector_map.get(ticker, 'UNKNOWN')
     
-    # Bypass logic: Print status and proceed
-    if stock_sector == 'UNKNOWN':
-        print(f"🔍 {ticker}: Sector Unknown. Proceeding to normal technical detection...")
-    else:
-        print(f"✅ {ticker}: Sector '{stock_sector}'. Checking technicals...")
-
-    # --- 3. TREND ANALYSIS (Fixed FutureWarnings) ---
+    # --- 3. TREND ANALYSIS (SCALAR FORCED) ---
     try:
         # Standardize EMA columns
         for col in ['ema20', 'ema50']:
@@ -1837,53 +1830,52 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
                 span = 20 if '20' in col else 50
                 df[col] = df['Close'].ewm(span=span, adjust=False).mean()
 
-        # FIXED SYNTAX: Explicitly grab the last value as a scalar to avoid Warnings
+        # FIX: Define 'last' row to resolve the Pylance error
+        last = df.iloc[-1]
         last_idx = df.index[-1]
-        close = float(df.loc[last_idx, "Close"])
+        
+        close = float(last["Close"])
         
         # Helper to grab EMA regardless of casing
-        get_ema = lambda s: df.loc[last_idx, s] if s in df.columns else df.loc[last_idx, s.upper()]
-        ema20 = float(get_ema('ema20'))
-        ema50 = float(get_ema('ema50'))
+        ema20_val = last.get("EMA20") if last.get("EMA20") is not None else last.get("ema20")
+        ema50_val = last.get("EMA50") if last.get("EMA50") is not None else last.get("ema50")
         
-        # Comparison logic: Scalar vs Scalar
+        ema20 = float(ema20_val)
+        ema50 = float(ema50_val)
+        
         if not (close > ema20 > ema50):
-            print(f"📉 {ticker}: Rejected - No Uptrend (Price {close:.2f} must be > EMA20 > EMA50).")
             return False
-    except Exception as e:
-        print(f"❌ Error in trend calculation for {ticker}: {e}")
+    except Exception:
         return False
 
     # --- 4. SIGNAL GENERATION ---
     sigs = []
     
-    # RSI & Volume (Scalar extraction)
-    rsi_val = last.get("RSI") or last.get("rsi") or 50
-    rsi = float(rsi_val.iloc[0]) if isinstance(rsi_val, pd.Series) else float(rsi_val)
+    # RSI Extraction (Ensuring scalar to stop FutureWarnings)
+    rsi_raw = last.get("RSI") or last.get("rsi") or 50
+    rsi = float(rsi_raw.iloc[0]) if isinstance(rsi_raw, pd.Series) else float(rsi_raw)
     
-    volume = float(df.loc[last_idx, "Volume"])
+    volume = float(last["Volume"])
     vol_avg = float(df["Volume"].rolling(20).mean().iloc[-1])
     
-    # A. Squeeze Logic (Bollinger Bands vs Keltner Channels)
+    # A. Squeeze Logic
     # 
     squeeze_triggered = False
-    if 'atr' not in df.columns and 'ATR' not in df.columns:
-        df['atr'] = (df['High'] - df['Low']).rolling(14).mean()
+    atr_col = 'ATR' if 'ATR' in df.columns else 'atr'
+    if atr_col not in df.columns:
+        df[atr_col] = (df['High'] - df['Low']).rolling(14).mean()
 
     recent_rows = df.iloc[-6:]
     for _, row in recent_rows.iterrows():
-        bu = row.get("BB_upper")
-        bl = row.get("BB_lower")
-        bm = row.get("BB_mid")
-        atr_val = row.get("ATR") or row.get("atr")
+        bu, bl, bm = row.get("BB_upper"), row.get("BB_lower"), row.get("BB_mid")
+        atr_val = row.get(atr_col)
         
-        if all(v is not None for v in [bu, bl, bm, atr_val]):
-            # Verify squeeze: Bollinger Bands inside 1.5 ATR Keltner Channels
+        if all(v is not None and not pd.isna(v) for v in [bu, bl, bm, atr_val]):
             if float(bu) < (float(bm) + float(atr_val) * 1.5) and float(bl) > (float(bm) - float(atr_val) * 1.5):
                 squeeze_triggered = True
                 break
     
-    # Breakout check: Last close above the 20-period high
+    # Breakout check
     high_20 = float(df["High"].shift(1).rolling(20).max().iloc[-1])
     breakout = (close > high_20) and (rsi > 55)
 
@@ -1891,32 +1883,23 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
         sigs.append("Squeeze_Breakout")
 
     # B. Institutional Accumulation
-    high_last = float(df.loc[last_idx, "High"])
-    low_last = float(df.loc[last_idx, "Low"])
-    day_range = high_last - low_last
-    close_loc = (close - low_last) / day_range if day_range > 0 else 0
-    
+    day_range = float(last["High"]) - float(last["Low"])
+    close_loc = (close - float(last["Low"])) / day_range if day_range > 0 else 0
     if (volume > vol_avg * 1.3) and (close_loc > 0.70):
         sigs.append("Institutional_Buy")
 
     # C. Pivot Reversal (TTM Scalper)
     # 
-    prev_idx = df.index[-2]
-    prev2_idx = df.index[-3]
+    prev = df.iloc[-2]
+    prev2 = df.iloc[-3]
     
-    p_low = float(df.loc[prev_idx, "Low"])
-    p2_low = float(df.loc[prev2_idx, "Low"])
-    p_high = float(df.loc[prev_idx, "High"])
-
-    if (p_low < p2_low) and (close > p_high) and (rsi > 50):
+    if (float(prev["Low"]) < float(prev2["Low"])) and (close > float(prev["High"])) and (rsi > 50):
         sigs.append("Pivot_Reversal")
 
-    # --- 5. FINAL DECISION ---
+    # --- 5. FINAL OUTPUT ---
     if sigs:
-        print(f"🚀 BUY SIGNAL: {ticker} | Triggers: {', '.join(sigs)}")
+        print(f"🚀 BUY SIGNAL: {ticker} ({stock_sector}) | Triggers: {', '.join(sigs)}")
         return True
-    else:
-        print(f"💤 {ticker}: Passed trend filter, but no breakout/squeeze signals found.")
 
     return False
 
@@ -3287,6 +3270,7 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
 
