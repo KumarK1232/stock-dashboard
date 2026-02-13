@@ -1787,87 +1787,109 @@ class SectorGenius:
 # Initialize the manager once
 sector_manager = SectorGenius()
 
-
+import pandas as pd
+import requests
+import logging
 
 def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str = None) -> bool:
     """
     Terminal-Optimized Scanner:
-    - Bypasses Unknown Sectors to allow technical detection.
-    - Uses print() to ensure immediate visibility in the terminal.
+    - Uses GitHub-hosted sector data to avoid Yahoo rate limits.
+    - Forces scalar comparisons to fix 'identically-labeled Series' crash.
     """
-    # --- 1. DATA VALIDATION ---
-    ticker = ticker_name or getattr(df, 'ticker', None) or getattr(df, 'name', 'UNKNOWN')
+    # --- 1. DATA VALIDATION & TICKER IDENTIFICATION ---
+    ticker = (ticker_name or getattr(df, 'ticker', None) or "UNKNOWN").upper()
     
     if df is None or df.empty or len(df) < 50:
         return False
 
-    # --- 2. SECTOR ANALYSIS (WITH UNKNOWN BYPASS) ---
-    sector_manager.update_sector_ranks() 
-    stock_etf = sector_manager.get_ticker_sector(ticker)
-    
-    if stock_etf != 'UNKNOWN':
-        if stock_etf not in sector_manager.top_sectors:
-            sec_name = sector_manager.etf_to_name.get(stock_etf, stock_etf)
-            # Use print for terminal visibility
-            print(f"🚫 {ticker}: Sector '{sec_name}' not in Top 5. Skipping.")
-            return False
-        else:
-            print(f"✅ {ticker}: In Top Tier Sector ({stock_etf}). Checking technicals...")
-    else:
-        # THE GOAL: Bypass unknown and go to normal technical detection
-        print(f"🔍 {ticker}: Sector Unknown. Proceeding to normal technical detection...")
+    # --- 2. SECTOR ANALYSIS (GITHUB DATASET) ---
+    if not hasattr(detect_buying_opportunity, "sector_map"):
+        # Fetching a public ticker-to-sector mapping to avoid Yahoo 429/401 errors
+        GITHUB_URL = "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/all/all_tickers.json"
+        try:
+            resp = requests.get(GITHUB_URL, timeout=5)
+            data = resp.json()
+            # Map symbol to sector
+            detect_buying_opportunity.sector_map = {item['symbol']: item.get('sector', 'UNKNOWN') for item in data}
+        except:
+            detect_buying_opportunity.sector_map = {}
 
-    # --- 3. TREND ANALYSIS ---
+    stock_sector = detect_buying_opportunity.sector_map.get(ticker, 'UNKNOWN')
+    
+    # Logic: Proceed if Sector is Unknown (Bypass) or if we wanted to filter by Top Sectors
+    # For now, we print status and proceed as requested.
+    if stock_sector == 'UNKNOWN':
+        print(f"🔍 {ticker}: Sector Unknown. Proceeding to normal technical detection...")
+    else:
+        print(f"✅ {ticker}: Sector recognized as '{stock_sector}'. Checking technicals...")
+
+    # --- 3. TREND ANALYSIS (Fixing the Comparison Crash) ---
+    # Ensure EMAs exist
     if 'ema20' not in df.columns and 'EMA20' not in df.columns:
         df['ema20'] = df['Close'].ewm(span=20, adjust=False).mean()
     if 'ema50' not in df.columns and 'EMA50' not in df.columns:
         df['ema50'] = df['Close'].ewm(span=50, adjust=False).mean()
 
-    last = df.iloc[-1]
-    close = last["Close"]
-    ema20 = last.get("EMA20") or last.get("ema20")
-    ema50 = last.get("EMA50") or last.get("ema50")
-
-    is_uptrend = close > ema20 > ema50
-    if not is_uptrend:
-        print(f"📉 {ticker}: Rejected - No Uptrend (Price must be > EMA20 > EMA50).")
+    # EXTRACT SCALARS: This prevents the "identically-labeled Series" error
+    try:
+        last = df.iloc[-1]
+        close = float(last["Close"])
+        ema20 = float(last.get("EMA20") if last.get("EMA20") is not None else last.get("ema20"))
+        ema50 = float(last.get("EMA50") if last.get("EMA50") is not None else last.get("ema50"))
+        
+        # Core Uptrend Filter
+        is_uptrend = close > ema20 > ema50
+        if not is_uptrend:
+            print(f"📉 {ticker}: Rejected - No Uptrend (Price {close:.2f} must be > EMA20 > EMA50).")
+            return False
+    except Exception as e:
+        print(f"❌ Error calculating trend for {ticker}: {e}")
         return False
 
     # --- 4. SIGNAL GENERATION ---
     sigs = []
     rsi = float(last.get("RSI") or last.get("rsi") or 50)
-    volume = last.get("Volume", 0)
-    vol_avg = df["Volume"].rolling(20).mean().iloc[-1] if "Volume" in df else 1
+    volume = float(last.get("Volume", 0))
+    vol_avg = float(df["Volume"].rolling(20).mean().iloc[-1]) if "Volume" in df else 1.0
     
     # A. Squeeze Logic
+    # 
     squeeze_triggered = False
     if 'ATR' not in df.columns and 'atr' not in df.columns:
         df['atr'] = (df['High'] - df['Low']).rolling(14).mean()
 
     recent_rows = df.iloc[-6:]
     for _, row in recent_rows.iterrows():
-        bu, bl, bm, atr = row.get("BB_upper"), row.get("BB_lower"), row.get("BB_mid"), (row.get("ATR") or row.get("atr"))
-        if all(v is not None for v in [bu, bl, bm, atr]):
-            if bu < (bm + atr * 1.5) and bl > (bm - atr * 1.5):
+        # Force all to float for comparison safety
+        bu = row.get("BB_upper")
+        bl = row.get("BB_lower")
+        bm = row.get("BB_mid")
+        atr_val = row.get("ATR") or row.get("atr")
+        
+        if all(v is not None for v in [bu, bl, bm, atr_val]):
+            if float(bu) < (float(bm) + float(atr_val) * 1.5) and float(bl) > (float(bm) - float(atr_val) * 1.5):
                 squeeze_triggered = True
                 break
     
-    # Breakout
-    high_20 = df["High"].shift(1).rolling(20).max().iloc[-1]
+    # Breakout check
+    high_20 = float(df["High"].shift(1).rolling(20).max().iloc[-1])
     breakout = (close > high_20) and (rsi > 55)
 
-    if squeeze_triggered and breakout: sigs.append("Squeeze_Breakout")
+    if squeeze_triggered and breakout: 
+        sigs.append("Squeeze_Breakout")
 
     # B. Institutional Accumulation
-    day_range = last["High"] - last["Low"]
-    close_loc = (close - last["Low"]) / day_range if day_range > 0 else 0
+    day_range = float(last["High"]) - float(last["Low"])
+    close_loc = (close - float(last["Low"])) / day_range if day_range > 0 else 0
     if (volume > vol_avg * 1.3) and (close_loc > 0.70):
         sigs.append("Institutional_Buy")
 
-    # C. Pivot Reversal
+    # C. Pivot Reversal (The TTM Scalper signal)
+    # 
     prev = df.iloc[-2]
     prev2 = df.iloc[-3]
-    if (prev["Low"] < prev2["Low"]) and (close > prev["High"]) and (rsi > 50):
+    if (float(prev["Low"]) < float(prev2["Low"])) and (close > float(prev["High"])) and (rsi > 50):
         sigs.append("Pivot_Reversal")
 
     # --- 5. FINAL DECISION ---
@@ -1875,9 +1897,11 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
         print(f"🚀 BUY SIGNAL: {ticker} | Triggers: {', '.join(sigs)}")
         return True
     else:
-        print(f"💤 {ticker}: Passed filters, but no breakout/squeeze signals found.")
+        print(f"💤 {ticker}: Passed trend filter, but no active signals found.")
 
     return False
+
+
 
 
 import plotly.graph_objects as go
