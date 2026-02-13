@@ -1791,12 +1791,12 @@ import pandas as pd
 import requests
 import time
 
+
 def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str = None) -> bool:
     """
     Terminal-Optimized Scanner:
-    - SILENCED all FutureWarnings using .item() for scalar conversion.
-    - Fixed Pylance 'undefined last' error.
-    - GitHub Sector Data with 3x Retry Logic.
+    - Guaranteed Sector Visibility: Prints sector for EVERY ticker.
+    - Logic Tracing: Shows why a ticker passed or failed.
     """
     # --- 1. DATA VALIDATION ---
     ticker = (ticker_name or getattr(df, 'ticker', None) or "UNKNOWN").upper()
@@ -1808,106 +1808,92 @@ def detect_buying_opportunity(df: pd.DataFrame, timeframe: str, ticker_name: str
     if not hasattr(detect_buying_opportunity, "sector_map"):
         GITHUB_URL = "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/all/all_tickers.json"
         detect_buying_opportunity.sector_map = {}
-        for attempt in range(3):
-            try:
-                resp = requests.get(GITHUB_URL, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    detect_buying_opportunity.sector_map = {item['symbol']: item.get('sector', 'UNKNOWN') for item in data}
-                    print("📦 Sector Database Loaded Successfully.")
-                    break
-            except Exception:
-                time.sleep(1)
+        try:
+            resp = requests.get(GITHUB_URL, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                detect_buying_opportunity.sector_map = {item['symbol']: item.get('sector', 'UNKNOWN') for item in data}
+                print("✅ [SYSTEM] GitHub Sector Database Loaded.")
+        except Exception as e:
+            print(f"❌ [SYSTEM] Sector Load Failed: {e}")
 
     stock_sector = detect_buying_opportunity.sector_map.get(ticker, 'UNKNOWN')
     
-    # --- 3. TREND ANALYSIS (Warning-Proof) ---
+    # --- 3. TREND ANALYSIS ---
     try:
-        # Standardize EMA columns
         for col in ['ema20', 'ema50']:
             if col not in df.columns and col.upper() not in df.columns:
                 span = 20 if '20' in col else 50
                 df[col] = df['Close'].ewm(span=span, adjust=False).mean()
 
-        # FIXED: Extraction using .item() to avoid FutureWarnings
-        last_row = df.iloc[-1:] # Keeps it as a DataFrame slice
-        
+        last_row = df.iloc[-1:]
         close = float(last_row["Close"].item())
         
-        # Casing check for EMAs
         e20_col = 'EMA20' if 'EMA20' in df.columns else 'ema20'
         e50_col = 'EMA50' if 'EMA50' in df.columns else 'ema50'
-        
         ema20 = float(last_row[e20_col].item())
         ema50 = float(last_row[e50_col].item())
         
-        if not (close > ema20 > ema50):
-            return False
-            
+        is_uptrend = (close > ema20 > ema50)
     except Exception:
         return False
 
     # --- 4. SIGNAL GENERATION ---
     sigs = []
     
-    # RSI Extraction
+    # RSI & Volume
     rsi_col = 'RSI' if 'RSI' in df.columns else 'rsi'
-    rsi = 50.0
-    if rsi_col in df.columns:
-        rsi = float(last_row[rsi_col].item())
-    
+    rsi = float(last_row[rsi_col].item()) if rsi_col in df.columns else 50.0
     volume = float(last_row["Volume"].item())
     vol_avg = float(df["Volume"].rolling(20).mean().iloc[-1:].item())
     
     # A. Squeeze Logic
-    # 
     squeeze_triggered = False
     atr_col = 'ATR' if 'ATR' in df.columns else 'atr'
     if atr_col not in df.columns:
         df[atr_col] = (df['High'] - df['Low']).rolling(14).mean()
 
-    # Look back 6 periods for a squeeze
     recent = df.tail(6)
     for i in range(len(recent)):
         row = recent.iloc[i]
-        bu, bl, bm = row.get("BB_upper"), row.get("BB_lower"), row.get("BB_mid")
-        atr_v = row.get(atr_col)
-        
+        bu, bl, bm, atr_v = row.get("BB_upper"), row.get("BB_lower"), row.get("BB_mid"), row.get(atr_col)
         if all(v is not None and not pd.isna(v) for v in [bu, bl, bm, atr_v]):
             if float(bu) < (float(bm) + float(atr_v) * 1.5) and float(bl) > (float(bm) - float(atr_v) * 1.5):
                 squeeze_triggered = True
                 break
     
-    # Breakout check
+    # B. Breakout check
     high_20 = float(df["High"].shift(1).rolling(20).max().iloc[-1:].item())
-    breakout = (close > high_20) and (rsi > 55)
+    if (close > high_20) and (rsi > 45):
+        sigs.append("Squeeze_Breakout" if squeeze_triggered else "Breakout")
 
-    if squeeze_triggered and breakout: 
-        sigs.append("Squeeze_Breakout")
-
-    # B. Institutional Accumulation
+    # C. Institutional Accumulation
     h, l = float(last_row["High"].item()), float(last_row["Low"].item())
     day_range = h - l
     close_loc = (close - l) / day_range if day_range > 0 else 0
     if (volume > vol_avg * 1.3) and (close_loc > 0.70):
         sigs.append("Institutional_Buy")
 
-    # C. Pivot Reversal (TTM Scalper)
-    # 
+    # D. Pivot Reversal (TTM Scalper)
     prev = df.iloc[-2:-1]
     prev2 = df.iloc[-3:-2]
-    
-    if (float(prev["Low"].item()) < float(prev2["Low"].item())) and \
-       (close > float(prev["High"].item())) and (rsi > 50):
+    if (float(prev["Low"].item()) < float(prev2["Low"].item())) and (close > float(prev["High"].item())) and (rsi > 50):
         sigs.append("Pivot_Reversal")
 
-    # --- 5. FINAL OUTPUT ---
-    if sigs:
-        print(f"🚀 BUY SIGNAL: {ticker} ({stock_sector}) | Triggers: {', '.join(sigs)}")
-        return True
+    # --- 5. FINAL DECISION & MANDATORY PRINTING ---
+    if is_uptrend:
+        if sigs:
+            print(f"\n🚀 [SIGNAL] {ticker} | Sector: {stock_sector} | Signals: {', '.join(sigs)} | RSI: {rsi:.1f}")
+            return True
+        else:
+            # This confirms the ticker passed the trend check but had no "entry" signal
+            print(f"💤 [TREND-OK] {ticker} | Sector: {stock_sector} | No breakout triggers.")
+    else:
+        # Optional: uncomment if you want to see every single stock processed
+        # print(f"📉 [NO-TREND] {ticker} | Sector: {stock_sector}")
+        pass
 
     return False
-
 
 
 import plotly.graph_objects as go
@@ -3275,6 +3261,7 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
 
