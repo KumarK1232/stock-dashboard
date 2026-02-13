@@ -703,7 +703,33 @@ def fetch_metadata(ticker: str) -> dict:
         return data
     except Exception:
         return {'sector': None, 'earningsDate': None}
-
+def calculate_ttm_scalper(df):
+    """
+    Identifies TTM Scalper Buy signals (Pivot Low followed by reversal).
+    """
+    if df is None or len(df) < 5:
+        return df
+    
+    # Create shifted columns to compare previous candles
+    # Low_1 means "Low of 1 candle ago"
+    df['Low_1'] = df['Low'].shift(1)
+    df['Low_2'] = df['Low'].shift(2)
+    df['High_1'] = df['High'].shift(1)
+    
+    # Scalper Buy Logic:
+    # 1. The low 2 days ago was lower than the low 1 day ago? (Wait, strict TTM is 3 lower lows)
+    # Let's use a robust "Pivot Reversal" logic which is safer:
+    # "Price made a low, failed to go lower, and broke the previous high"
+    
+    # Logic: Current Low is higher than Previous Low, AND Current Close > Previous High
+    # This signifies the momentum has officially shifted UP.
+    df['scalper_buy'] = (
+        (df['Low'] > df['Low_1']) &       # We stopped making lower lows
+        (df['Close'] > df['High_1']) &    # We broke the prior candle's ceiling
+        (df['Close'] > df['Open'])        # It's a green candle
+    )
+    
+    return df
 def fetch_earnings_date_finviz(ticker: str) -> Optional[datetime]:
     with finviz_lock:
         time.sleep(0.5 + random.random() * 0.5) 
@@ -1059,32 +1085,61 @@ def analyze_ticker(ticker: str, entry_data: Optional[Dict[str, Any]] = None) -> 
         # -------------------------------------------------------
         # DAILY SIGNALS
         # -------------------------------------------------------
-        daily_signal = False
+       daily_signal = False
         daily_bear_signal = False
+        
+        # 1. Run the Scalper Calculation on our data
+        daily_ind = calculate_ttm_scalper(daily_ind)
 
         try:
+            # Get latest values
             close = daily_ind["Close"].iloc[-1]
             prev_close = daily_ind["Close"].iloc[-2]
             ema20 = col(daily_ind, "EMA20", "ema20").iloc[-1]
             ema50 = col(daily_ind, "EMA50", "ema50").iloc[-1]
             ema200 = col(daily_ind, "EMA200", "ema200").iloc[-1]
             rsi = col(daily_ind, "RSI", "rsi").iloc[-1]
-
+            
+            # Check for Scalper Signal (Today or Yesterday)
+            scalper_fire = daily_ind['scalper_buy'].iloc[-1]
+            
+            # Basic Trend Defintions
             trend_up = ema20 > ema50 > ema200
             trend_down = ema20 < ema50 < ema200
             momentum_up = rsi >= RSI_BUY and close > prev_close
             momentum_down = rsi <= RSI_SELL and close < prev_close
 
+            # --- ORIGINAL LOGIC ---
             if close > ema20 * (1 + EMA_BUFFER) and trend_up and momentum_up:
                 daily_signal = True
-                tags += ["DAILY_SIGNAL", "Daily Signal"]
-                tags += ["DAILY_STRONG_TREND", "Daily Strong Trend"] if rsi >= 62 else ["DAILY_WEAK_TREND", "Daily Weak Trend"]
+                # We add specific descriptive tags, but these won't need new buttons
+                tags += ["DAILY_STRONG_TREND"] if rsi >= 62 else ["DAILY_WEAK_TREND"]
 
+            # --- NEW TTM SCALPER LOGIC (The "High Upside" Update) ---
+            # If we have a Scalper Buy AND we are in a general uptrend (Above EMA50)
+            if scalper_fire and close > ema50:
+                # We FORCE daily_signal to True so it shows up in your existing filter
+                daily_signal = True 
+                
+                # We also tag it as a "Buying Opportunity" automatically
+                tags += ["SCALPER_REVERSAL", "Buying Opportunity"]
+                
+                # Boost the AI Score so it ranks higher
+                buy_score += 20 
+
+            # --- BEAR LOGIC ---
             if close < ema20 * (1 - EMA_BUFFER) and trend_down and momentum_down:
                 daily_bear_signal = True
-                tags += ["DAILY_BEAR_SIGNAL", "Daily Bear Signal"]
-        except:
+                tags += ["DAILY_BEAR_SIGNAL"]
+
+            # Final Tag Assignment for UI
+            if daily_signal:
+                tags += ["DAILY_SIGNAL", "Daily Signal"]
+                
+        except Exception as e:
+            # Safe failover if data is missing
             pass
+
 
         # -------------------------------------------------------
         # MONTHLY SIGNALS (REAL FIX — TAGS ALWAYS EMITTED)
@@ -3046,6 +3101,7 @@ if __name__ == "__main__":
     else: logger.info("Market is OPEN.")
 
     main()
+
 
 
 
