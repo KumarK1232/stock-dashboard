@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 
 # TopBottom_Universe vFinal30 - Inbox Fixed & New Indicators Added
 # --- EXPERT MODIFICATIONS (FIXED VERSION) ---
 # 1. PRESERVED: All original logic (Inbox, Indicators, Trading Rules).
