@@ -28,7 +28,7 @@ try:
     from dateutil import parser
 except ImportError:
     print("CRITICAL ERROR: Missing libraries.")
-    print("Run: pip install pandas numpy beautifulsoup4 lxml openpyxl python-dateutil pandas_market_calendars")
+    print("Run: pip install pandas numpy beautifulsoup4 openpyxl python-dateutil pandas_market_calendars")
     sys.exit(1)
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -746,7 +746,7 @@ def fetch_earnings_date_finviz(ticker: str) -> Optional[datetime]:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                 html = resp.read().decode("utf-8","ignore")
-            soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, 'html.parser')
             earnings_header_cell = soup.find('td', class_='snapshot-td2', string='Earnings')
             if not earnings_header_cell: return None
             date_cell = earnings_header_cell.find_next_sibling('td')
@@ -2425,6 +2425,13 @@ def generate_html_page(page_type, data_groups, outpath, nav_link, source_info, t
 
         ("RECENT_WEEKLY_TOP", "Recent W-Top"),
         ("RECENT_WEEKLY_BOTTOM", "Recent W-Bottom"),
+
+        ("QUALITY_A_PLUS", "🏆 Quality A+"),
+        ("QUALITY_A", "🏆 Quality A"),
+        ("QUALITY_B", "🏆 Quality B"),
+        ("OPTIONS_BULLISH", "📈 Opts Bullish"),
+        ("OPTIONS_BEARISH", "📉 Opts Bearish"),
+        ("UNUSUAL_OPTIONS", "⚡ Unusual Options"),
     ]
 
     for tag_id, label in tech_btns:
@@ -3261,8 +3268,7 @@ def tb_send_email(subject, html_content):
         msg["From"] = EMAIL_ADDRESS
         msg["To"] = ", ".join(_QF_RECIPIENTS)
         msg.attach(_MIMEText(html_content, "html"))
-        with _smtplib.SMTP(_QF_SMTP_SERVER, 587) as server:
-            server.ehlo(); server.starttls()
+        with _smtplib.SMTP_SSL(_QF_SMTP_SERVER, 465) as server:
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.sendmail(EMAIL_ADDRESS, _QF_RECIPIENTS, msg.as_string())
         logger.info("  REPORT EMAIL: Sent '%s' to %s", subject, ", ".join(_QF_RECIPIENTS))
@@ -3462,10 +3468,26 @@ def tb_generate_institutional_research_email(data):
 def tb_check_and_send_reports(regime_data=None, sector_data=None, quality_results=None):
     """Non-blocking report scheduler. Handles 11AM, 2PM, 3PM, 4PM reports."""
     global report_11am_sent, report_2pm_sent, report_3pm_sent, report_4pm_sent
+    # Reliable ET time without requiring pytz
     try:
-        import pytz
-        now = datetime.now(pytz.timezone("US/Eastern"))
-    except:
+        import calendar as _cal
+        _utc_now = datetime.now(timezone.utc)
+        _month = _utc_now.month
+        if 3 < _month < 11:
+            _is_dst = True
+        elif _month == 3:
+            _ss = 14 - _cal.weekday(_utc_now.year, 3, 1)
+            if _ss <= 0: _ss += 7
+            _is_dst = _utc_now.day >= _ss
+        elif _month == 11:
+            _fs = 7 - _cal.weekday(_utc_now.year, 11, 1)
+            if _fs <= 0: _fs += 7
+            _is_dst = _utc_now.day < _fs
+        else:
+            _is_dst = False
+        _offset = timedelta(hours=-4 if _is_dst else -5)
+        now = _utc_now + _offset
+    except Exception:
         now = datetime.now(timezone.utc)
 
     # 11:00 AM — Institutional Research Scan
