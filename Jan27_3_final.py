@@ -3714,6 +3714,38 @@ def fetch_congress_trades():
     return tickers[:50]
 
 
+def main():
+    auto_import_favorites_from_downloads()
+    logger.info("--- MAINTENANCE: Clearing Cache Directory to force fresh data ---")
+    clean_output_directory(CACHE_DIR)
+    
+    clean_output_directory(MASTER_OUTPUT_DIR)
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    os.makedirs(CHARTS_DIR, exist_ok=True)
+            
+    watchmap_final = {}; watchdata_final = {}; favmap_final = {}; favdata_final = {}; current_favorites_list = [] 
+    if USE_WATCHLIST_EXCEL:
+        watchmap_orig, watchdata_orig = load_watchlist_from_excel(WATCHLIST_FILE)
+        watchmap_final = (watchmap_orig or {}).copy()
+        watchdata_final = (watchdata_orig or {}).copy()
+        
+        favmap_new, favdata_new = load_watchlist_from_excel(FAVORITES_FILE)
+        favmap_final = (favmap_new or {}).copy()
+        favdata_final = (favdata_new or {}).copy()
+        
+        if favdata_new:
+            for ticker, info in favdata_new.items():
+                current_favorites_list.append({
+                    'Ticker': ticker,
+                    'EntryPrice': info.get('price'),
+                    'EntryDate': info.get('date')
+                })
+        
+
+
+    # ═══════════════════════════════════════════════════════
+    # SCANNER ENGINE — moved into main() for proper execution
+    # ═══════════════════════════════════════════════════════
     watchlist_tickers = set(t for group in watchmap_final.values() for t in group)
     favorite_tickers = set(t for group in favmap_final.values() for t in group)
     all_entry_data = watchdata_final.copy()
@@ -4103,34 +4135,6 @@ def fetch_congress_trades():
     except Exception as e:
         logging.error(f"Worker error for {ticker}: {e}")
         logger.error("Failed to open browser: %s", e)
-
-def main():
-    auto_import_favorites_from_downloads()
-    logger.info("--- MAINTENANCE: Clearing Cache Directory to force fresh data ---")
-    clean_output_directory(CACHE_DIR)
-    
-    clean_output_directory(MASTER_OUTPUT_DIR)
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    os.makedirs(CHARTS_DIR, exist_ok=True)
-            
-    watchmap_final = {}; watchdata_final = {}; favmap_final = {}; favdata_final = {}; current_favorites_list = [] 
-    if USE_WATCHLIST_EXCEL:
-        watchmap_orig, watchdata_orig = load_watchlist_from_excel(WATCHLIST_FILE)
-        watchmap_final = (watchmap_orig or {}).copy()
-        watchdata_final = (watchdata_orig or {}).copy()
-        
-        favmap_new, favdata_new = load_watchlist_from_excel(FAVORITES_FILE)
-        favmap_final = (favmap_new or {}).copy()
-        favdata_final = (favdata_new or {}).copy()
-        
-        if favdata_new:
-            for ticker, info in favdata_new.items():
-                current_favorites_list.append({
-                    'Ticker': ticker,
-                    'EntryPrice': info.get('price'),
-                    'EntryDate': info.get('date')
-                })
-        
 
 def market_is_open():
     nyse = mcal.get_calendar("NYSE")
