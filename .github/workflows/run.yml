@@ -31,7 +31,7 @@ jobs:
       - name: Run Stock Report Script
         #run: python TopBottomwithwatchlist_report_builder_39__FINAL_BUYING_OPPORTUNITY_v6_HYBRID_FIXED.py
         #run: python TopBottomwithwatchlist_report_builder_39__FINAL.py
-        run: python Jan27_3.py
+        run: python Jan27_3_updated.py
         env:
           EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
@@ -58,7 +58,7 @@ jobs:
           git add docs/
           #git add TopBottomwithwatchlist_report_builder_39__FINAL_BUYING_OPPORTUNITY_v6_HYBRID_FIXED.py
           #git add TopBottomwithwatchlist_report_builder_39__FINAL.py
-          git add Jan27_3.py
+          git add Jan27_3_updated.py
           # 6. Commit and Force Push
           git commit -m "Auto update dashboard: $(date +'%Y-%m-%d %H:%M')" || exit 0
           git push origin main --force
