@@ -7,3 +7,5 @@ openpyxl
 lxml
 html5lib
 plotly
+finviz
+tradingview-screener
