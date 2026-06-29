@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# TopBottom_Universe vFinal30- Inbox Fixed & New Indicators Added
-# --- EXPERT MODIFICATIONS (FIXED VERSION) ---
-# 1. PRESERVED: All original logic (Inbox, Indicators, Trading Rules).
-# 2. FIXED: Filters now   click and update counts dynamically.
-# 3. FIXED: Charts now render using Lazy Loading (IntersectionObserver).
-# 4. FIXED: CSS and JS are robustly embedded. 
-
 from __future__ import annotations
 from unittest import result
 import os, sys, time, json, math, random, logging, urllib.request, urllib.parse, webbrowser
