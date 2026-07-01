@@ -1,0 +1,692 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>TopBottom Favorites vFinal30-InboxFixed-Repaired — 2026-07-01 16:59:44</title>
+<style>:root {
+  --primary: #0b5fff;
+  --muted: #6b7280;
+  --card: #fff;
+  --bg: #f6f8fb;
+}
+body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Roboto, Arial;
+  background: var(--bg);
+  color: #0b2545;
+}
+.top-toolbar {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 60;
+  padding: 10px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  box-shadow: 0 6px 18px rgba(11, 37, 95, 0.06);
+  flex-wrap: wrap;
+}
+.brand {
+  font-weight: 700;
+  color: var(--primary);
+  margin-right: 6px;
+  white-space: nowrap;
+}
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.btn {
+  background: #fff;
+  border: 1px solid #e6eefc;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(11, 37, 95, 0.04);
+}
+.btn.primary {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+}
+.btn.ghost {
+  background: transparent;
+  border: 1px solid #e6eefc;
+  color: var(--primary);
+}
+.filter-area {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.active {
+  background: var(--primary) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+.container {
+  padding: 18px;
+  max-width: 1400px;
+  margin: 12px auto;
+}
+.card {
+  background: var(--card);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 10px 30px rgba(11, 37, 95, 0.03);
+}
+#no_results_msg {
+    display: none; /* Hidden by default */
+    color: var(--muted);
+    text-align: center;
+    padding: 30px;
+    font-size: 1.1rem;
+}
+.header-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.badge {
+  background: #eef2ff;
+  color: var(--primary);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  margin: 2px 4px 2px 0;
+  display: inline-block;
+  font-size: 0.8rem;
+}
+.signal_card {
+  margin-bottom: 10px;
+  border-left: 4px solid transparent;
+  padding: 8px;
+}
+.signal_card[data-tags*="INTRADAY_TOP"],
+.signal_card[data-tags*="DAILY_TOP"],
+.signal_card[data-tags*="RECENT_WEEKLY_TOP"] {
+  border-left-color: #ef4444;
+}
+.signal_card[data-tags*="INTRADAY_BOTTOM"],
+.signal_card[data-tags*="DAILY_BOTTOM"],
+.signal_card[data-tags*="RECENT_WEEKLY_BOTTOM"] {
+  border-left-color: #10b981;
+}
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+@media (min-width: 980px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.status {
+  font-size: 13px;
+  color: #374151;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.chart-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.chart-table {
+  margin-top: 8px;
+  border-radius: 6px;
+  border: 1px solid #eef2ff;
+  padding: 8px;
+  background: #fbfdff;
+  max-height: 340px;
+  overflow: auto;
+  font-family: monospace;
+  font-size: 12px;
+}
+.footer-small {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 12px;
+}</style>
+<style>
+    :root {
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --text-color: #2d3748;
+        --text-muted: #718096;
+        --text-dark: #1a202c;
+        --bg-color: #f7fafc;
+        --bg-white: #ffffff;
+        --border-color: #e2e8f0;
+        --green-500: #2f855a;
+        --green-100: #f0fff4;
+        --green-border: #c6f6d5;
+        --red-500: #c53030;
+        --red-100: #fff5f5;
+        --red-border: #fecaca;
+        --primary: #007bff;
+    }
+    body {
+        font-family: var(--font-sans);
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        margin: 0;
+        padding-top: 70px; /* Room for fixed toolbar */
+    }
+    .container {
+        width: 100%;
+        max-width: 95%;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        box-sizing: border-box;
+    }
+    .card {
+        background: var(--bg-white);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
+        margin-bottom: 1rem;
+    }
+    h3 {
+        font-size: 1.5rem;
+        color: var(--text-dark);
+        margin: 1.5rem 0 1rem 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    /* --- Tile Grid --- */
+    .tile-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 1.25rem;
+    }
+    
+    .stock-tile {
+        background-color: var(--bg-white);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: row;
+        box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05);
+        transition: all 0.2s ease-in-out;
+    }
+    .stock-tile:hover {
+        box-shadow: 0 4px 12px 0 rgba(0,0,0,0.08);
+        transform: translateY(-2px);
+    }
+    
+    .tile-border {
+        flex-shrink: 0;
+        width: 6px;
+    }
+    .tile-border-green { background-color: var(--green-500); }
+    .tile-border-red { background-color: var(--red-500); }
+    
+    .tile-content {
+        padding: 16px;
+        width: 100%;
+    }
+    
+    /* Header */
+    .tile-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+    .tile-header-left {
+        display: flex;
+        flex-direction: column;
+    }
+    .tile-ticker {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        line-height: 1;
+        margin: 0;
+    }
+    .tile-category {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+    
+    .tile-header-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+    .change-pill {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1;
+    }
+    .change-pill-green {
+        background-color: var(--green-100);
+        color: var(--green-500);
+        border: 1px solid var(--green-border);
+    }
+    .change-pill-red {
+        background-color: var(--red-100);
+        color: var(--red-500);
+        border: 1px solid var(--red-border);
+    }
+    
+    /* Body */
+    .tile-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+    .tile-stat {
+        display: flex;
+        flex-direction: column;
+    }
+    .stat-label {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+    .stat-value {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-dark);
+    }
+    .stat-value-small {
+        font-size: 1rem;
+        font-weight: 500;
+        color: var(--text-color);
+    }
+    
+    /* Price Changes Table */
+    .price-changes {
+        font-size: 0.875rem;
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.25rem;
+    }
+    .price-changes th, .price-changes td {
+        text-align: center;
+        padding: 8px;
+        color: var(--text-muted);
+        border: 1px solid var(--border-color);
+    }
+    .price-changes th {
+        font-weight: 600;
+        background-color: #fdfdfd;
+    }
+    
+    /* 52-Week Range */
+    .week-range {
+        width: 100%;
+    }
+    .week-range-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-dark);
+        margin-bottom: 6px;
+    }
+    .week-range-bar-outer {
+        height: 10px;
+        width: 100%;
+        background-color: var(--border-color);
+        border-radius: 5px;
+        position: relative;
+        overflow: hidden;
+    }
+    .week-range-bar-inner {
+        height: 100%;
+        background-color: var(--text-muted);
+        border-radius: 5px 0 0 5px;
+        position: relative;
+    }
+    .week-range-bar-inner::after { /* Current price indicator */
+        content: '';
+        display: block;
+        width: 3px;
+        height: 14px; /* Taller than bar */
+        background-color: var(--text-dark);
+        position: absolute;
+        right: -1px; /* At the end of the inner bar */
+        top: -2px; /* Centered */
+    }
+    
+    /* --- Toolbar (Copied) --- */
+    .top-toolbar {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+        background: var(--bg-white);
+        border-bottom: 1px solid var(--border-color);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        padding: 0 1rem;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        color: var(--text-dark);
+    }
+    .brand { font-size: 1.25rem; font-weight: 700; }
+    .controls { display: flex; align-items: center; gap: 8px; margin-left: 1.5rem; }
+    .btn {
+        display: inline-block;
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 0.875rem;
+        text-decoration: none;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--bg-white);
+        color: var(--text-color);
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .btn:hover { background-color: #f7fafc; }
+    .btn.primary { background-color: var(--primary); color: white; border-color: var(--primary); }
+    .btn.ghost { background: transparent; border: 1px solid transparent; }
+    .btn.ghost:hover { background: #f7fafc; border-color: var(--border-color); }
+    .footer-small {
+        text-align: center;
+        padding: 20px;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+    </style>
+</head><body>
+<div class='top-toolbar'><div class='brand'>TopBottom — vFinal30-InboxFixed-Repaired</div>
+<div class='controls'>
+<a href='TopBottom_Universal.html' class='btn ghost'>🌐 Universal</a>
+<a href='TopBottom_Watchlist.html' class='btn ghost'>⭐ Watchlist</a>
+<a href='TopBottom_Sector.html' class='btn ghost'>📊 Sector</a>
+<button class='btn primary'>❤️ Favorites</button>
+</div>
+<div style='margin-left:auto;display:flex;gap:8px;align-items:center'>
+<button class='btn' onclick='exportFavorites()'>📤 Export Favorites</button>
+<button class='btn' onclick='window.location.reload()'>🔄 Refresh</button>
+</div></div>
+<div class='container'>
+<h3>Sheet1 (1)</h3>
+<div class='tile-grid'>
+<div class='stock-tile'>
+  <div class='tile-border tile-border-green'></div>
+  <div class='tile-content'>
+    <div class='tile-header'>
+      <div class='tile-header-left'>
+        <a href='https://finviz.com/quote.ashx?t=CL=F&p=d' target='_blank' style='text-decoration:none;'><h2 class='tile-ticker'>CL=F</h2></a>
+        <div class='tile-category'>Category: None</div>
+      </div>
+      <div class='tile-header-right'>
+        <div class='change-pill change-pill-green'>
+          Overall Change ▲ 18.71%
+        </div>
+        <div class='stat-label' style='margin-top: 4px;'>Daily: -1.76%</div>
+      </div>
+    </div>
+    <div class='tile-body'>
+      <div class='tile-stat'>
+        <div class='stat-label'>Today's Price</div>
+        <div class='stat-value'>$68.28</div>
+      </div>
+      <div class='tile-stat'>
+        <div class='stat-label'>Market Cap</div>
+        <div class='stat-value'>N/A</div>
+      </div>
+      <div class='tile-stat'>
+        <div class='stat-label'>Entry Price</div>
+        <div class='stat-value stat-value-small'>$57.52</div>
+      </div>
+      <div class='tile-stat'>
+        <div class='stat-label'>Entry Date</div>
+        <div class='stat-value stat-value-small'>2026-01-06</div>
+      </div>
+    </div>
+    <div class='stat-label'>Price Change (Trends)</div>
+    <table class='price-changes'>
+      <tr><th>3D</th><th>5D</th><th>7D</th><th>9D</th><th>15D</th><th>30D</th><th>60D</th><th>90D</th></tr>
+      <tr><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>
+    </table>
+    <div class='week-range'>
+      <div class='week-range-labels'>
+        <span>$55.27</span>
+        <span>52-Week Range (Top/Bottom)</span>
+        <span>$112.95</span>
+      </div>
+      <div class='week-range-bar-outer'>
+        <div class='week-range-bar-inner' style='width: 22.555476964498116%;'></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+<div class='footer-small'>Generated by TopBottom_Universe vFinal30-InboxFixed-Repaired — 2026-07-01 16:59:44</div>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'></script>
+<script>
+    console.log("TopBottom Report Loaded");
+    
+    // --- STATE ---
+    window.currentFavorites = window.initialFavorites || [];
+    window.aiScoreThreshold = 0;
+    window.activeFilters = new Set();
+    window.stackMode = 'AND';
+    window._chartData = window._tb_chart_payloads || {};
+
+    // --- TOGGLE TABLE ---
+    window.toggleTable = function(divId) {
+        var x = document.getElementById(divId + "_table");
+        if (x.style.display === "none") {
+            x.style.display = "block";
+        } else {
+            x.style.display = "none";
+        }
+    };
+    
+    // --- FILTER BUTTON LOGIC ---
+    window.toggleTagButton = function(btn, tag) {
+        if (tag === 'ALL') {
+            window.activeFilters.clear();
+            document.querySelectorAll('.filter-area .btn').forEach(b => b.classList.remove('active'));
+        } else {
+            if (window.activeFilters.has(tag)) {
+                window.activeFilters.delete(tag);
+                btn.classList.remove('active');
+            } else {
+                window.activeFilters.add(tag);
+                btn.classList.add('active');
+            }
+        }
+        window.applyFilters();
+    };
+
+    window.updateAIScoreFilter = function(val) {
+        window.aiScoreThreshold = parseInt(val || 0);
+        document.getElementById('aiScoreVal').innerText = val;
+        window.applyFilters();
+    };
+
+    window.applyFilters = function() {
+        var cards = document.querySelectorAll('.signal_card');
+        var stackMode = document.getElementById('stackModeSelect') ? document.getElementById('stackModeSelect').value : 'AND';
+        let visibleCount = 0;
+
+        cards.forEach(function(card) {
+            var tags = card.dataset.tags ? card.dataset.tags.split(',') : [];
+            var score = parseFloat(card.dataset.score || 0);
+            var tagMatch = true;
+
+            if (window.activeFilters.size > 0) {
+                const filters = Array.from(window.activeFilters);
+                if (stackMode === "AND") {
+                    tagMatch = filters.every(t => tags.includes(t));
+                } else {
+                    tagMatch = filters.some(t => tags.includes(t));
+                }
+            }
+
+            var scoreMatch = score >= window.aiScoreThreshold;
+            
+            if (tagMatch && scoreMatch) {
+                card.style.display = "";
+                visibleCount++;
+            } else {
+                card.style.display = "none";
+            }
+        });
+
+        window.updateFilterState(visibleCount, cards.length);
+    };
+
+    window.updateFilterState = function(visibleCount, totalCount) {
+        var statusMsg = document.getElementById('statusMsg');
+        var activeNames = Array.from(window.activeFilters);
+        if (window.aiScoreThreshold > 0) activeNames.push("AI >= " + window.aiScoreThreshold);
+        
+        if (statusMsg) {
+            statusMsg.innerHTML = `Mode: ${window.stackMode} • Filters: ${activeNames.length > 0 ? activeNames.join(', ') : 'None'} • Showing ${visibleCount} of ${totalCount}`;
+        }
+
+        // Update counts on buttons based on VISIBLE cards
+        var allCards = Array.from(document.querySelectorAll('.signal_card'));
+        var visibleCards = allCards.filter(c => c.style.display !== 'none');
+
+        document.querySelectorAll('.filter-area .btn[data-filter]').forEach(function(btn) {
+            var tag = btn.dataset.filter;
+            var count = visibleCards.filter(c => (c.dataset.tags || "").split(',').includes(tag)).length;
+            var baseText = btn.dataset.text || tag;
+            btn.innerHTML = `${baseText} (${count})`;
+        });
+    };
+
+    // --- FAVORITES LOGIC ---
+    window.updateFavButtons = function() {
+        window.currentFavorites.forEach(function(fav) {
+            var btn = document.getElementById('favbtn_' + fav.Ticker);
+            if (btn) { btn.innerHTML = "✅ Added"; btn.style.background = "#e2e8f0"; btn.style.color = "#333"; btn.disabled = true; }
+        });
+    };
+
+    window.addToFavorite = function(ticker, price, date, btnElement) {
+        if (window.currentFavorites.find(f => f.Ticker === ticker)) return;
+        var newFav = { 'Ticker': ticker, 'EntryPrice': price, 'EntryDate': date };
+        window.currentFavorites.push(newFav);
+        if (btnElement) { btnElement.innerHTML = "✅ Added"; btnElement.disabled = true; }
+    };
+    
+    window.exportFavorites = function() {
+        if(typeof XLSX === 'undefined') { alert('XLSX library not loaded'); return; }
+        var ws = XLSX.utils.json_to_sheet(window.currentFavorites);
+        var wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        XLSX.writeFile(wb, "favorites.xlsx");
+    };
+
+    // --- CHART RENDERING (LAZY LOAD) ---
+    window.initCharts = function() {
+        const observer = new IntersectionObserver((entries, obs) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const divId = entry.target.id;
+                    if (divId && window._tb_chart_payloads && window._tb_chart_payloads[divId] && !entry.target.getAttribute('data-drawn')) {
+                        drawChart(divId, window._tb_chart_payloads[divId]);
+                        entry.target.setAttribute('data-drawn', 'true');
+                        obs.unobserve(entry.target);
+                    }
+                }
+            });
+        });
+        
+        document.querySelectorAll('.chart-container').forEach(el => observer.observe(el));
+    };
+
+    window.drawChart = function(divId, payloadObj) {
+        if(!payloadObj || !payloadObj.data) return;
+        var d = payloadObj.data;
+        
+        var tracePrice = {
+            x: d.labels,
+            open: d.open, high: d.high, low: d.low, close: d.close,
+            type: 'candlestick', name: 'Price'
+        };
+        
+        var data = [tracePrice];
+        
+        if (d.bb_upper && d.bb_upper.length > 0) {
+            data.push({ x: d.labels, y: d.bb_upper, type: 'scatter', mode: 'lines', line: {color: '#ccc', width: 1}, name: 'BB Upper' });
+            data.push({ x: d.labels, y: d.bb_lower, type: 'scatter', mode: 'lines', line: {color: '#ccc', width: 1}, name: 'BB Lower', fill: 'tonexty', fillcolor: 'rgba(200,200,200,0.1)' });
+        }
+        
+        var layout = {
+            margin: {l: 35, r: 35, t: 10, b: 30},
+            height: %HEIGHT%,
+            xaxis: {rangeslider: {visible: false}, type: 'date'},
+            yaxis: {autorange: true, fixedrange: false},
+            dragmode: 'pan',
+            showlegend: false
+        };
+        
+        Plotly.newPlot(divId, data, layout, {displayModeBar: false});
+    };
+
+    window.manualRefresh = function() { location.reload(); };
+    window.scrollToTop = function() { window.scrollTo({top: 0, behavior: 'smooth'}); };
+    
+    window.onscroll = function() {
+        var btn = document.getElementById("scrollTopBtn");
+        if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {
+            btn.style.display = "block";
+        } else {
+            btn.style.display = "none";
+        }
+    };
+
+    window.downloadCSV = function() {
+        var cards = document.querySelectorAll('.signal_card');
+        var csv = "Ticker,Tags,Score\n";
+        cards.forEach(function(card) {
+            if(card.style.display !== 'none') {
+                csv += card.dataset.ticker + ',"' + card.dataset.tags.replace(/,/g, ';') + '",' + card.dataset.score + "\n";
+            }
+        });
+        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        var link = document.createElement("a");
+        var url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", "filtered_results.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        window.updateFavButtons();
+        window.applyFilters(); // Init counts
+        window.initCharts();   // Init observer
+    });
+    </script>
+</body></html>
