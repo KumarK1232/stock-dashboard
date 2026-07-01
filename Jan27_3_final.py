@@ -49,6 +49,11 @@ except ImportError:
 # -------------------- CONFIG --------------------
 SCRIPT_VERSION = "vFinal30-InboxFixed-Repaired"
 
+# --- v2.2 tuning flags ---
+ENABLE_DYNAMIC_DISCOVERY = os.getenv("ENABLE_DYNAMIC_DISCOVERY", "true").lower() == "true"
+SEND_ALL_REPORTS_ON_MANUAL = os.getenv("SEND_ALL_REPORTS_ON_MANUAL", "false").lower() == "true"
+HIDE_ZERO_FILTERS = os.getenv("HIDE_ZERO_FILTERS", "true").lower() == "true"
+
 # --- EMAIL / INBOX CONFIG ---
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
@@ -79,7 +84,12 @@ CHARTS_DIR = os.path.join(BASE_DIR, "charts")
 WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.xlsx") 
 FAVORITES_FILE = os.path.join(BASE_DIR, "favorites.xlsx") 
 
-DOWNLOADS_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
+# GitHub-safe: fall back to repo BASE_DIR if ~/Downloads does not exist (e.g. on Actions runner).
+DOWNLOADS_FOLDER = os.getenv("DOWNLOADS_FOLDER") or (
+    os.path.join(os.path.expanduser("~"), "Downloads")
+    if os.path.isdir(os.path.join(os.path.expanduser("~"), "Downloads"))
+    else BASE_DIR
+)
 USE_WATCHLIST_EXCEL = True
 ENABLE_CSV_EXPORT = False
 ENABLE_Sector = False
@@ -578,17 +588,16 @@ def build_universe(limit:int=UNIVERSE_LIMIT)->Dict[str,List[str]]:
     data["ETFs"] = [t for t in etfs_raw if t not in seen]
     seen.update(data["ETFs"])
 
-    # v2.1: Dynamic discovery sources (Finviz signals + recent Congress purchases).
-    # These functions are defined later in the file; they are available by the time main() calls build_universe().
+    # v2.1/2.2: Dynamic discovery (Finviz + Congress), gated by ENABLE_DYNAMIC_DISCOVERY.
     try:
-        if 'fetch_dynamic_discovery' in globals():
+        if ENABLE_DYNAMIC_DISCOVERY and 'fetch_dynamic_discovery' in globals():
             discovery = fetch_dynamic_discovery()
             for _disc_name, _disc_tickers in (discovery or {}).items():
                 _cat = "Discovery_" + str(_disc_name).replace(" ", "_")
                 _clean = unique_tickers(_disc_tickers or [])
                 data[_cat] = [t for t in _clean if t not in seen]
                 seen.update(data[_cat])
-        if 'fetch_congress_trades' in globals():
+        if ENABLE_DYNAMIC_DISCOVERY and 'fetch_congress_trades' in globals():
             _congress = unique_tickers(fetch_congress_trades() or [])
             data["Congress_Purchases"] = [t for t in _congress if t not in seen]
             seen.update(data["Congress_Purchases"])
@@ -700,6 +709,21 @@ def fetch_weekly(ticker:str, days:int=WEEKLY_LOOKBACK_DAYS)->Optional[pd.DataFra
     return fetch_chart_yahoo_json(ticker, interval="1wk", days=days)
 
 def fetch_metadata(ticker: str) -> dict:
+    # v2.2: fast-skip Yahoo fundamentals for instruments that never have them.
+    _t_upper = (ticker or "").upper().strip()
+    if (
+        "-USD" in _t_upper
+        or "=F" in _t_upper
+        or _t_upper.startswith("^")
+        or _t_upper in {
+            "SPY","QQQ","IWM","DIA","VTI","VOO","GLD","SLV","USO","UNG","TLT","AGG","VNQ",
+            "XLF","XLK","XLE","XLY","XLV","XLI","XLP","XLU","XLB","XLRE","XLC",
+            "SMH","SOXX","ARKK","ARKG","ARKW","BITO","IBIT","FBTC","GBTC","ETHE","ETHA",
+            "EFA","EWJ","EWZ","FXI","EEM","VEA","VWO","IEFA","VXUS","ACWI","VGK","BNDW",
+            "INDA","MCHI","IEMG","URA","LIT","COPX","GDX","XBI","TAN","ICLN","PAVE","CIBR"
+        }
+    ):
+        return {'sector': None, 'earningsDate': None, 'marketCap': None}
     cache_file = cache_path(f"{ticker}_meta_v1.json")
     if is_cache_fresh(cache_file, 7 * 24):
         try:
@@ -2787,7 +2811,6 @@ def _df_to_table_data(df: pd.DataFrame, num_rows: int = 30, extra_cols: List[str
 def clean_output_directory(directory_path: str):
     """
     Safely removes generated files while preserving GitHub Pages keeper files.
-    This prevents docs/.gitkeep and docs/.nojekyll from being deleted in GitHub Actions.
     """
     os.makedirs(directory_path, exist_ok=True)
     keep_files = {".gitkeep", ".nojekyll"}
@@ -3017,7 +3040,7 @@ def qf_compute_quality_score(r, regime, sector_strengths):
     tier = qf_get_tier(r.get("ticker", ""))
     tier_s = 100 if tier == "TIER_1" else (70 if tier == "TIER_2" else 40)
     total = round(min((mtf*0.25)+(vol*0.15)+(rqg*0.30)+(reg_s*0.15)+(sec_s*0.10)+(tier_s*0.05), 100), 1)
-    grade = "A+" if total >= 75 else ("A" if total >= 60 else ("B" if total >= 45 else ("C" if total >= 30 else "F")))
+    grade = "A+" if total >= 70 else ("A" if total >= 55 else ("B" if total >= 40 else ("C" if total >= 25 else "F")))
     r["quality_score"] = total
     r["quality_grade"] = grade
     r["quality_passed"] = grade in ("A+", "A")
@@ -3695,6 +3718,17 @@ def tb_check_and_send_reports(regime_data=None, sector_data=None, quality_result
     except Exception:
         now = datetime.now(timezone.utc)
 
+    # v2.2 manual/after-close guard: only fire 4pm EOD report on backfill runs after 4pm ET.
+    try:
+        _cur_hour = getattr(now, "hour", 0)
+    except Exception:
+        _cur_hour = 0
+    if (not SEND_ALL_REPORTS_ON_MANUAL) and _cur_hour >= 16:
+        global report_11am_sent, report_2pm_sent, report_3pm_sent
+        report_11am_sent = True
+        report_2pm_sent = True
+        report_3pm_sent = True
+
     # 11:00 AM — Institutional Research Scan
     if not report_11am_sent and now.hour >= REPORT_11AM_HOUR:
         logger.info("  REPORT: 11 AM trigger — Institutional Research Scan...")
@@ -3858,23 +3892,38 @@ def opt_enrich_results(results):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def fetch_finviz_signal(signal_id, max_tickers=50):
-    """Fetch tickers from a Finviz screener signal page (free, no API key needed)."""
+    """v2.2 hardened Finviz screener fetch: rotates UA and retries on 429/403."""
+    import time as _t, random as _rand
     tickers = []
-    try:
-        url = f"https://finviz.com/screener.ashx?v=111&s={signal_id}&o=-marketcap"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", "ignore")
-        for df in pd.read_html(StringIO(html)):
-            cols = [str(c).lower() for c in df.columns]
-            if "ticker" in cols:
-                raw = df[df.columns[cols.index("ticker")]].astype(str).str.strip().str.upper().tolist()
-                valid = [t for t in raw if t != "TICKER" and 1 <= len(t) <= 6 and t.isalpha()]
-                tickers.extend(valid[:max_tickers])
-                break
-    except Exception as e:
-        logger.warning("  FINVIZ SIGNAL %s failed: %s", signal_id, e)
+    uas = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36",
+    ]
+    url = f"https://finviz.com/screener.ashx?v=111&s={signal}&o=-volume"
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _rand.choice(uas)})
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                html = resp.read().decode("utf-8", "ignore")
+            for df in pd.read_html(StringIO(html)):
+                cols = [str(c).lower() for c in df.columns]
+                if "ticker" in cols and len(df) > 1:
+                    raw = df[df.columns[cols.index("ticker")]].astype(str).str.strip().str.upper().tolist()
+                    tickers = [t for t in raw if t != "TICKER" and 1 <= len(t) <= 6 and t.isalpha()]
+                    tickers = tickers[:limit]
+                    break
+            if tickers:
+                return tickers
+        except urllib.error.HTTPError as he:
+            if getattr(he, "code", None) in (429, 403):
+                _t.sleep(2 + attempt * 3 + _rand.random())
+                continue
+            logger.warning("  DISCOVERY: %s HTTPError %s", signal, getattr(he, "code", "?"))
+            break
+        except Exception as e:
+            logger.warning("  DISCOVERY: %s failed: %s", signal, e)
+            _t.sleep(1 + attempt)
     return tickers
 
 
@@ -3898,25 +3947,48 @@ def fetch_dynamic_discovery():
 
 
 def fetch_congress_trades():
-    """Fetch recent congress stock trades from free public dataset."""
-    tickers = []
-    try:
-        url = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8", "ignore"))
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-        seen = set()
-        for trade in data:
-            if trade.get("type", "").lower() == "purchase" and trade.get("transaction_date", "") >= cutoff:
-                ticker = trade.get("ticker", "").strip().upper()
-                if ticker and len(ticker) <= 6 and "--" not in ticker and ticker not in seen:
-                    tickers.append(ticker)
-                    seen.add(ticker)
-        logger.info("  CONGRESS: Found %d recent purchase tickers (last 30 days)", len(tickers))
-    except Exception as e:
-        logger.warning("  CONGRESS TRADES fetch failed: %s", e)
-    return tickers[:50]
+    """v2.2 hardened Congress trades fetch: primary S3 + Senate Stock Watcher fallback."""
+    tickers = set()
+    primary_url = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
+    fallback_url = "https://senatestockwatcher.com/api/v1/transactions"
+    for _url in (primary_url, fallback_url):
+        try:
+            req = urllib.request.Request(_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                raw = resp.read().decode("utf-8", "ignore")
+            data = json.loads(raw)
+            if isinstance(data, dict) and "transactions" in data:
+                data = data["transactions"]
+            if not isinstance(data, list):
+                continue
+            cutoff = datetime.now(timezone.utc) - timedelta(days=45)
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                t = (row.get("ticker") or row.get("Ticker") or row.get("symbol") or "").strip().upper()
+                if not t or not t.isalpha() or len(t) > 6:
+                    continue
+                d = row.get("transaction_date") or row.get("date") or row.get("disclosure_date")
+                try:
+                    if d:
+                        _dt = parser.parse(str(d))
+                        if _dt.tzinfo is None:
+                            _dt = _dt.replace(tzinfo=timezone.utc)
+                        if _dt < cutoff:
+                            continue
+                except Exception:
+                    pass
+                ttype = (row.get("type") or row.get("transaction_type") or "").lower()
+                if "sale" in ttype or "sell" in ttype:
+                    continue
+                tickers.add(t)
+            if tickers:
+                logger.info("  CONGRESS: %d tickers from %s", len(tickers), _url)
+                return sorted(tickers)
+        except Exception as e:
+            logger.warning("  CONGRESS TRADES fetch failed for %s: %s", _url, e)
+    return sorted(tickers)
+
 
 def main():
     auto_import_favorites_from_downloads()
@@ -4328,6 +4400,31 @@ def main():
     # v2.0 — DAILY MARKET INTELLIGENCE REPORTS (2 PM + 4 PM)
     # ═══════════════════════════════════════════════════════
     try:
+        # v2.2 dashboard polish: hide zero-count filter buttons.
+        try:
+            import glob as _glob_polish
+            if HIDE_ZERO_FILTERS:
+                _polish_js = (
+                    '<script>/* v2.2 dashboard polish */(function(){try{document.addEventListener("DOMContentLoaded",function(){'
+                    'var btns=document.querySelectorAll(".filter-btn, .btn");btns.forEach(function(b){'
+                    'var t=(b.textContent||"").trim();if(/\\(0\\)$/.test(t)&&(b.dataset.filter||"")!=="ALL"){b.style.display="none";}});});}catch(e){}})();</script>'
+                )
+                for _html_path in _glob_polish.glob(os.path.join(MASTER_OUTPUT_DIR, "*.html")):
+                    try:
+                        with open(_html_path, "r", encoding="utf-8") as _hf:
+                            _content = _hf.read()
+                        if "v2.2 dashboard polish" not in _content:
+                            if "</body>" in _content:
+                                _content = _content.replace("</body>", _polish_js + "\n</body>")
+                            else:
+                                _content = _content + _polish_js
+                            with open(_html_path, "w", encoding="utf-8") as _hf:
+                                _hf.write(_content)
+                    except Exception as _pe:
+                        logger.warning("Filter polish skipped for %s: %s", _html_path, _pe)
+        except Exception as _pex:
+            logger.warning("Dashboard polish block failed: %s", _pex)
+
         tb_check_and_send_reports(regime_data=_qf_regime, sector_data=_qf_sectors, quality_results=_qf_passed)
     except Exception as rpt_err:
         logger.warning("  Report check failed: %s", rpt_err)
