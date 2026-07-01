@@ -4,7 +4,7 @@
 # 1. PRESERVED: All original logic (Inbox, Indicators, Trading Rules).
 # 2. FIXED: Filters now   click and update counts dynamically.
 # 3. FIXED: Charts now render using Lazy Loading (IntersectionObserver).
-# 4. FIXED: CSS and JS are robustly embedded..
+# 4. FIXED: CSS and JS are robustly embedded.
 
 from __future__ import annotations
 from unittest import result
