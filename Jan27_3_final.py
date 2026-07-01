@@ -1,8 +1,8 @@
-#!/usr/bin/env python3.
-# TopBottom_Universe vFinal30- Inbox Fixed & New Indicators Added
+#!/usr/bin/env python3
+# TopBottom_Universe vFinal30 - Inbox Fixed & New Indicators Added
 # --- EXPERT MODIFICATIONS (FIXED VERSION) ---
 # 1. PRESERVED: All original logic (Inbox, Indicators, Trading Rules).
-# 2. FIXED: Filters now   click and update counts dynamically.
+# 2. FIXED: Filters now click and update counts dynamically.
 # 3. FIXED: Charts now render using Lazy Loading (IntersectionObserver).
 # 4. FIXED: CSS and JS are robustly embedded.
 
@@ -18,12 +18,7 @@ import shutil
 import imaplib
 import email
 import io
-try:
-    import pandas_market_calendars as mcal
-except ImportError:
-    # GitHub Actions sometimes fails if pandas_market_calendars is missing.
-    # Keep the scanner runnable; market_is_open() below will use a safe fallback.
-    mcal = None
+import pandas_market_calendars as mcal
 from typing import List
 
 try:
@@ -33,7 +28,7 @@ try:
     from dateutil import parser
 except ImportError:
     print("CRITICAL ERROR: Missing libraries.")
-    print("Run: pip install pandas numpy beautifulsoup4 openpyxl python-dateutil pandas_market_calendars yfinance requests plotly")
+    print("Run: pip install pandas numpy beautifulsoup4 lxml openpyxl python-dateutil pandas_market_calendars")
     sys.exit(1)
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -691,7 +686,7 @@ def fetch_metadata(ticker: str) -> dict:
         except: pass
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(ticker)}?modules=assetProfile,calendarEvents,defaultKeyStatistics,price"
+        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(ticker)}?modules=assetProfile,calendarEvents"
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             raw = resp.read().decode("utf-8", "ignore")
@@ -703,14 +698,7 @@ def fetch_metadata(ticker: str) -> dict:
         if earnings_events:
             ts = earnings_events[0].get('raw')
             if ts: earnings_date_iso = datetime.fromtimestamp(int(ts), timezone.utc).isoformat()
-        # v2.0: Extract market cap from API response
-        mcap_raw = None
-        try:
-            dks = result.get('defaultKeyStatistics', {})
-            price_mod = result.get('price', {})
-            mcap_raw = price_mod.get('marketCap', {}).get('raw') or dks.get('enterpriseValue', {}).get('raw')
-        except: pass
-        data = {'sector': sector, 'earningsDate': earnings_date_iso, 'marketCap': mcap_raw}
+        data = {'sector': sector, 'earningsDate': earnings_date_iso}
         with open(cache_file, "w") as f: json.dump(data, f)
         return data
     except Exception:
@@ -751,7 +739,7 @@ def fetch_earnings_date_finviz(ticker: str) -> Optional[datetime]:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                 html = resp.read().decode("utf-8","ignore")
-            soup = BeautifulSoup(html, 'html.parser')
+            soup = BeautifulSoup(html, 'lxml')
             earnings_header_cell = soup.find('td', class_='snapshot-td2', string='Earnings')
             if not earnings_header_cell: return None
             date_cell = earnings_header_cell.find_next_sibling('td')
@@ -1006,15 +994,7 @@ def analyze_ticker(ticker: str, entry_data: Optional[Dict[str, Any]] = None) -> 
         # -------------------------------------------------------
         meta = fetch_metadata(ticker) or {}
         sector = meta.get("sector")
-        mcap = safe_float(meta.get("marketCap"))
-        if not mcap or mcap <= 0:
-            try:
-                import yfinance as yf
-                _tk_info = yf.Ticker(ticker).info
-                mcap = safe_float(_tk_info.get("marketCap"))
-            except: pass
-        if not mcap or mcap <= 0:
-            mcap = fetch_market_cap_fallback(ticker)
+        mcap = safe_float(meta.get("marketCap")) or fetch_market_cap_fallback(ticker)
 
         mcap_bucket = None
         if mcap and mcap > 0:
@@ -1050,34 +1030,12 @@ def analyze_ticker(ticker: str, entry_data: Optional[Dict[str, Any]] = None) -> 
             earnings_date_dt = None
 
         if earnings_date_dt is None:
-            # v2.0: Try yfinance for earnings date first
             try:
-                import yfinance as yf
-                _tk_cal = yf.Ticker(ticker).calendar
-                if _tk_cal is not None:
-                    _ed_val = None
-                    if isinstance(_tk_cal, dict):
-                        _ed_val = _tk_cal.get('Earnings Date')
-                    elif hasattr(_tk_cal, 'columns'):
-                        try: _ed_val = _tk_cal.iloc[0, 0] if not _tk_cal.empty else None
-                        except: pass
-                    if _ed_val is not None:
-                        if isinstance(_ed_val, (list, tuple)) and _ed_val:
-                            earnings_date_dt = pd.Timestamp(_ed_val[0]).to_pydatetime()
-                        elif hasattr(_ed_val, 'year'):
-                            earnings_date_dt = pd.Timestamp(_ed_val).to_pydatetime()
-                        if earnings_date_dt and earnings_date_dt.tzinfo is None:
-                            earnings_date_dt = earnings_date_dt.replace(tzinfo=timezone.utc)
+                earnings_date_dt = fetch_earnings_date_finviz(ticker)
+                if earnings_date_dt and earnings_date_dt.tzinfo is None:
+                    earnings_date_dt = earnings_date_dt.replace(tzinfo=timezone.utc)
             except:
-                pass
-            # Finviz fallback
-            if earnings_date_dt is None:
-                try:
-                    earnings_date_dt = fetch_earnings_date_finviz(ticker)
-                    if earnings_date_dt and earnings_date_dt.tzinfo is None:
-                        earnings_date_dt = earnings_date_dt.replace(tzinfo=timezone.utc)
-                except:
-                    earnings_date_dt = None
+                earnings_date_dt = None
 
         if earnings_date_dt:
             try:
@@ -2430,13 +2388,6 @@ def generate_html_page(page_type, data_groups, outpath, nav_link, source_info, t
 
         ("RECENT_WEEKLY_TOP", "Recent W-Top"),
         ("RECENT_WEEKLY_BOTTOM", "Recent W-Bottom"),
-
-        ("QUALITY_A_PLUS", "🏆 Quality A+"),
-        ("QUALITY_A", "🏆 Quality A"),
-        ("QUALITY_B", "🏆 Quality B"),
-        ("OPTIONS_BULLISH", "📈 Opts Bullish"),
-        ("OPTIONS_BEARISH", "📉 Opts Bearish"),
-        ("UNUSUAL_OPTIONS", "⚡ Unusual Options"),
     ]
 
     for tag_id, label in tech_btns:
@@ -2769,10 +2720,15 @@ def _df_to_table_data(df: pd.DataFrame, num_rows: int = 30, extra_cols: List[str
     }
 def clean_output_directory(directory_path: str):
     """
-    Safely removes all files and subdirectories within the specified directory.
+    Safely removes generated files while preserving GitHub Pages keeper files.
+    This prevents docs/.gitkeep and docs/.nojekyll from being deleted during GitHub Actions runs.
     """
+    os.makedirs(directory_path, exist_ok=True)
+    keep_files = {".gitkeep", ".nojekyll"}
     if os.path.exists(directory_path):
         for filename in os.listdir(directory_path):
+            if filename in keep_files:
+                continue
             file_path = os.path.join(directory_path, filename)
             try:
                 if os.path.isfile(file_path) or os.path.islink(file_path):
@@ -2798,10 +2754,6 @@ REPORT_2PM_HOUR = 14
 REPORT_4PM_HOUR = 16
 report_2pm_sent = False
 report_4pm_sent = False
-REPORT_11AM_HOUR = 11
-REPORT_3PM_HOUR = 15
-report_11am_sent = False
-report_3pm_sent = False
 _QF_SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 _QF_RECIPIENT_STR = os.getenv("RECIPIENT_EMAILS", EMAIL_ADDRESS)
 _QF_RECIPIENTS = [a.strip() for a in _QF_RECIPIENT_STR.split(",") if a.strip()] if _QF_RECIPIENT_STR else []
@@ -3107,8 +3059,7 @@ def tb_fetch_report_data(regime_data=None, sector_data=None, quality_results=Non
     data = {"timestamp":ts,"date":dt,"macro":{},"sectors":{},"cross_assets":{},
             "key_levels":{},"secular_prices":{},"quality_results":quality_results or [],
             "regime":regime_data or {"regime":"NEUTRAL","spy_rsi":50},
-            "sector_strengths":sector_data or {},"etf_liq_in":[],"etf_liq_out":[],
-            "options_intel":[],"discovery":{},"congress":[]}
+            "sector_strengths":sector_data or {},"etf_liq_in":[],"etf_liq_out":[]}
     logger.info("  REPORT: Fetching instrument data...")
     for t, name in [("SPY","S&P 500"),("QQQ","Nasdaq 100"),("IWM","Russell 2000")]:
         info = _r_proc(t); info["name"] = name; data["macro"][t] = info
@@ -3142,50 +3093,12 @@ def tb_fetch_report_data(regime_data=None, sector_data=None, quality_results=Non
         rv = info.get("rvol"); t5 = info.get("trend_5d") or 0
         if rv and rv > 1.2 and t5 > 0: data["etf_liq_in"].append({"etf":etf,"theme":theme,"rvol":rv,"trend_5d":t5,"price":info.get("price")})
         elif rv and rv < 0.8 and t5 < 0: data["etf_liq_out"].append({"etf":etf,"theme":theme,"rvol":rv,"trend_5d":t5,"price":info.get("price")})
-
-    # ── NEW: Section 9 — Options Intelligence ──
-    try:
-        opts_list = []
-        for r in (quality_results or []):
-            oi = r.get("options_intel")
-            if oi and isinstance(oi, dict):
-                opts_list.append({
-                    "ticker": r.get("ticker", "?"),
-                    "grade": r.get("quality_grade", "?"),
-                    "last_close": r.get("last_close"),
-                    "pcr": oi.get("pcr"),
-                    "iv_calls": oi.get("iv_calls"),
-                    "iv_puts": oi.get("iv_puts"),
-                    "unusual": oi.get("unusual_activity", False),
-                    "unusual_ratio": oi.get("unusual_ratio"),
-                    "unusual_side": oi.get("unusual_side", "N/A"),
-                    "max_pain": oi.get("max_pain"),
-                    "smart_money": oi.get("smart_money_bias", "N/A"),
-                    "options_score": oi.get("options_score", 0),
-                })
-        data["options_intel"] = sorted(opts_list, key=lambda x: x.get("options_score", 0), reverse=True)
-    except Exception as e:
-        logger.warning("REPORT: Options intel aggregation failed: %s", e)
-        data["options_intel"] = []
-
-    # ── NEW: Section 10 — Dynamic Stock Discovery ──
-    try:
-        data["discovery"] = fetch_dynamic_discovery()
-    except Exception as e:
-        logger.warning("REPORT: Dynamic discovery failed: %s", e)
-        data["discovery"] = {}
-    try:
-        data["congress"] = fetch_congress_trades()
-    except Exception as e:
-        logger.warning("REPORT: Congress trades failed: %s", e)
-        data["congress"] = []
-
-    logger.info("  REPORT: Data fetch complete (10-section).")
+    logger.info("  REPORT: Data fetch complete.")
     return data
 
 
 def tb_generate_report_html(data):
-    """Build the full 10-section HTML report."""
+    """Build the 8-section HTML report."""
     ts = data.get("timestamp","?"); regime = data.get("regime",{})
     reg = regime.get("regime","NEUTRAL"); spy_rsi = regime.get("spy_rsi",50)
     rc = "#27ae60" if reg=="BULLISH" else ("#e74c3c" if reg=="BEARISH" else "#f39c12")
@@ -3194,19 +3107,14 @@ def tb_generate_report_html(data):
     css += ".sec{padding:18px 22px;border-bottom:1px solid #e0e0e0}.sec h2{color:#1a1a2e;font-size:16px;margin:0 0 10px;border-left:4px solid #0f3460;padding-left:10px}"
     css += "table{width:100%;border-collapse:collapse;font-size:11px;margin:6px 0}th{background:#1a1a2e;color:#fff;padding:6px;text-align:left;font-size:10px;text-transform:uppercase}"
     css += "td{padding:5px;border-bottom:1px solid #eee}tr:nth-child(even){background:#f8f9fa}.g{color:#27ae60;font-weight:bold}.r{color:#e74c3c;font-weight:bold}.y{color:#f39c12;font-weight:bold}"
-    css += ".badge{display:inline-block;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:bold;color:#fff}.bg{background:#27ae60}.br{background:#e74c3c}.by{background:#f39c12}.bb{background:#3498db}"
-    css += ".ftr{background:#f0f0f0;padding:12px 20px;font-size:9px;color:#888}"
-    css += ".highlight-row{background:#fffde7 !important}"
-    css += "</style>"
+    css += ".badge{display:inline-block;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:bold;color:#fff}.bg{background:#27ae60}.br{background:#e74c3c}.by{background:#f39c12}"
+    css += ".ftr{background:#f0f0f0;padding:12px 20px;font-size:9px;color:#888}</style>"
     h = "<html><head>" + css + "</head><body><div class='ctr'>"
     h += "<div class='hdr'><h1>&#128202; Daily Market Intelligence Report</h1>"
-    h += "<div style='color:#a0c4ff;font-size:12px;margin-top:4px'>TopBottom Scanner v2.0 — 10-Section Hedge Fund Format</div>"
+    h += "<div style='color:#a0c4ff;font-size:12px;margin-top:4px'>TopBottom Scanner v2.0 + 7-Layer Quality Filter</div>"
     h += "<div style='color:#ccc;font-size:10px;margin-top:6px'>%s</div>" % ts
     h += "<div style='margin-top:8px'><span style='display:inline-block;padding:5px 14px;border-radius:5px;font-weight:bold;color:#fff;background:%s'>Regime: %s | SPY RSI: %.1f</span></div></div>" % (rc, reg, spy_rsi)
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 1: Macro Environment
-    # ══════════════════════════════════════════════════════════
+    # S1: Macro
     h += "<div class='sec'><h2>&#128200; Section 1: Macro Environment</h2>"
     h += "<table><tr><th>Indicator</th><th>Price</th><th>Trend</th><th>5d Chg</th><th>RSI</th><th>Signal</th></tr>"
     for t, info in data.get("macro",{}).items():
@@ -3214,10 +3122,7 @@ def tb_generate_report_html(data):
         h += "<tr><td><b>%s</b> <small>%s</small></td><td>%s</td><td>%s</td><td style='color:%s'>%s%%</td><td>%s</td><td>%s</td></tr>" % (
             t, info.get("name",""), _rv(info.get("price")), _rarrow(t5), _rcolor(t5), _rv(t5,"%+.2f"), _rv(rsi,"%.0f"), _r_rsi_sig(rsi))
     h += "</table></div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 2: Sector Rotation
-    # ══════════════════════════════════════════════════════════
+    # S2: Sectors
     h += "<div class='sec'><h2>&#128260; Section 2: Sector Rotation</h2>"
     h += "<table><tr><th>ETF</th><th>Sector</th><th>Price</th><th>5d</th><th>RS vs SPY</th><th>Rating</th></tr>"
     for etf, info in sorted(data.get("sectors",{}).items(), key=lambda x: x[1].get("rs",0), reverse=True):
@@ -3226,10 +3131,7 @@ def tb_generate_report_html(data):
         h += "<tr><td><b>%s</b></td><td>%s</td><td>$%s</td><td style='color:%s'>%s%%</td><td style='color:%s;font-weight:bold'>%s%%</td><td><span class='badge %s'>%s</span></td></tr>" % (
             etf, info.get("name",""), _rv(info.get("price")), _rcolor(info.get("trend_5d")), _rv(info.get("trend_5d"),"%+.2f"), _rcolor(rs), _rv(rs,"%+.3f"), bc, st)
     h += "</table></div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 3: Cross-Asset Dashboard
-    # ══════════════════════════════════════════════════════════
+    # S3: Cross-Asset
     h += "<div class='sec'><h2>&#127757; Section 3: Cross-Asset Dashboard</h2>"
     h += "<table><tr><th>Asset</th><th>Price</th><th>5d Chg</th><th>RSI</th><th>Signal</th></tr>"
     for t, info in data.get("cross_assets",{}).items():
@@ -3237,10 +3139,7 @@ def tb_generate_report_html(data):
         h += "<tr><td><b>%s</b> <small>%s</small></td><td>$%s</td><td style='color:%s'>%s%%</td><td>%s</td><td>%s</td></tr>" % (
             t, info.get("name",""), _rv(info.get("price")), _rcolor(t5), _rv(t5,"%+.2f"), _rv(info.get("rsi"),"%.0f"), _r_rsi_sig(info.get("rsi")))
     h += "</table></div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 4: Secular Growth Themes
-    # ══════════════════════════════════════════════════════════
+    # S4: Secular
     h += "<div class='sec'><h2>&#128640; Section 4: Secular Growth Themes</h2>"
     h += "<table><tr><th>Theme</th><th>Tickers</th><th>ETF</th><th>Price</th><th>5d</th><th>Prob</th></tr>"
     for th in _RPT_SECULAR:
@@ -3249,10 +3148,7 @@ def tb_generate_report_html(data):
             th["theme"],",".join(th["tickers"][:3]),th["etf"],_rv(ei.get("price") if ei else None),
             _rcolor(ei.get("trend_5d") if ei else None),_rv(ei.get("trend_5d") if ei else None,"%+.2f"),th["prob"])
     h += "</table></div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 5: Top Quality Stocks
-    # ══════════════════════════════════════════════════════════
+    # S5: Quality stocks
     qr = data.get("quality_results",[])
     h += "<div class='sec'><h2>&#128293; Section 5: Top Quality Stocks (7-Layer Filter)</h2>"
     if qr:
@@ -3266,10 +3162,7 @@ def tb_generate_report_html(data):
         h += "</table>"
     else: h += "<p style='color:#888'>No quality-filtered stocks available.</p>"
     h += "</div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 6: ETF Liquidity Flows
-    # ══════════════════════════════════════════════════════════
+    # S6: Liquidity
     h += "<div class='sec'><h2>&#128176; Section 6: ETF Liquidity Flows</h2>"
     li_in = data.get("etf_liq_in",[]); li_out = data.get("etf_liq_out",[])
     if li_in:
@@ -3284,10 +3177,7 @@ def tb_generate_report_html(data):
         h += "</table>"
     if not li_in and not li_out: h += "<p style='color:#888'>No unusual ETF flows detected.</p>"
     h += "</div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 7: Key Price Levels
-    # ══════════════════════════════════════════════════════════
+    # S7: Key Levels
     h += "<div class='sec'><h2>&#127919; Section 7: Key Price Levels</h2>"
     h += "<table><tr><th>Instrument</th><th>Support</th><th>Current</th><th>Resistance</th><th>Position</th></tr>"
     for t, lv in data.get("key_levels",{}).items():
@@ -3297,10 +3187,7 @@ def tb_generate_report_html(data):
         else: pt="N/A"; pc="#666"
         h += "<tr><td><b>%s</b></td><td class='g'>$%s</td><td><b>$%s</b></td><td class='r'>$%s</td><td style='color:%s;font-weight:bold'>%s</td></tr>" % (t,_rv(s2),_rv(c2),_rv(r2),pc,pt)
     h += "</table></div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 8: Multi-Timeframe Forecast
-    # ══════════════════════════════════════════════════════════
+    # S8: Forecast
     vix_i = data.get("macro",{}).get("^VIX",{}); vv = vix_i.get("price") or 20
     spy_i = data.get("macro",{}).get("SPY",{}); st20 = spy_i.get("trend_20d") or 0
     ss_data = data.get("sector_strengths",{})
@@ -3321,128 +3208,11 @@ def tb_generate_report_html(data):
     for tf,dr,cf,dv,cl in forecasts:
         h += "<tr><td><b>%s</b></td><td style='color:%s;font-weight:bold'>%s</td><td>%s</td><td>%s</td></tr>" % (tf,cl,dr,cf,dv)
     h += "</table></div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 9: Options Intelligence (NEW)
-    # ══════════════════════════════════════════════════════════
-    opts = data.get("options_intel", [])
-    h += "<div class='sec'><h2>&#128184; Section 9: Options Intelligence (A+/A Stocks)</h2>"
-    if opts:
-        h += "<table><tr><th>Ticker</th><th>Grade</th><th>Price</th><th>PCR</th><th>IV Calls</th><th>IV Puts</th><th>Unusual?</th><th>Ratio</th><th>Side</th><th>Max Pain</th><th>Smart Money</th><th>Opts Score</th></tr>"
-        for o in opts[:30]:
-            # PCR coloring
-            pcr_val = o.get("pcr")
-            if pcr_val is not None:
-                pcr_cls = "r" if pcr_val > 1.0 else ("g" if pcr_val < 0.7 else "y")
-                pcr_str = "%.2f" % pcr_val
-            else:
-                pcr_cls = ""; pcr_str = "N/A"
-            # IV formatting
-            iv_c = ("%.0f%%" % (o.get("iv_calls",0)*100)) if o.get("iv_calls") is not None else "N/A"
-            iv_p = ("%.0f%%" % (o.get("iv_puts",0)*100)) if o.get("iv_puts") is not None else "N/A"
-            # Unusual
-            unusual = o.get("unusual", False)
-            unusual_str = "<span class='badge bg'>YES</span>" if unusual else "No"
-            # Unusual ratio & side
-            ur = ("%.1fx" % o.get("unusual_ratio")) if o.get("unusual_ratio") else "N/A"
-            us = o.get("unusual_side", "N/A")
-            # Max pain
-            mp = ("$%.2f" % o.get("max_pain")) if o.get("max_pain") else "N/A"
-            # Smart money
-            sm = o.get("smart_money", "N/A")
-            if sm == "BULLISH": sm_html = "<span class='g'>BULLISH</span>"
-            elif sm == "BEARISH": sm_html = "<span class='r'>BEARISH</span>"
-            else: sm_html = "<span class='y'>%s</span>" % sm
-            # Grade badge
-            gc = "bg" if o.get("grade") in ("A+","A") else ("by" if o.get("grade")=="B" else "br")
-            # Score
-            os_val = o.get("options_score", 0)
-            os_cls = "g" if os_val >= 60 else ("y" if os_val >= 40 else "r")
-            h += "<tr>"
-            h += "<td><b>%s</b></td>" % o.get("ticker","?")
-            h += "<td><span class='badge %s'>%s</span></td>" % (gc, o.get("grade","?"))
-            h += "<td>$%s</td>" % _rv(o.get("last_close"))
-            h += "<td class='%s'>%s</td>" % (pcr_cls, pcr_str)
-            h += "<td>%s</td><td>%s</td>" % (iv_c, iv_p)
-            h += "<td>%s</td>" % unusual_str
-            h += "<td>%s</td><td>%s</td>" % (ur, us)
-            h += "<td>%s</td>" % mp
-            h += "<td>%s</td>" % sm_html
-            h += "<td class='%s'><b>%d</b></td>" % (os_cls, os_val)
-            h += "</tr>"
-        h += "</table>"
-        # Summary stats
-        bulls = sum(1 for o in opts if o.get("smart_money") == "BULLISH")
-        bears = sum(1 for o in opts if o.get("smart_money") == "BEARISH")
-        unusuals = sum(1 for o in opts if o.get("unusual"))
-        h += "<div style='margin-top:8px;font-size:11px;color:#555'>"
-        h += "<b>Summary:</b> %d stocks analyzed | " % len(opts)
-        h += "<span class='g'>%d Bullish</span> | " % bulls
-        h += "<span class='r'>%d Bearish</span> | " % bears
-        h += "<span style='color:#e67e22'>%d Unusual Activity</span>" % unusuals
-        h += "</div>"
-    else:
-        h += "<p style='color:#888'>No options intelligence data available. Options data is enriched for A+/A graded stocks only.</p>"
-    h += "</div>"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 10: Dynamic Stock Discovery (NEW)
-    # ══════════════════════════════════════════════════════════
-    disc = data.get("discovery", {})
-    congress = data.get("congress", [])
-    h += "<div class='sec'><h2>&#128269; Section 10: Dynamic Stock Discovery (Free Sources)</h2>"
-
-    # 10a: Finviz Screener Signals
-    signal_labels = {
-        "unusual_volume": "Unusual Volume",
-        "new_highs": "New 52-Week Highs",
-        "most_active": "Most Active",
-        "oversold": "Oversold (RSI)",
-        "channel_up": "Channel Up (Trend)",
-    }
-    has_disc = False
-    if disc and isinstance(disc, dict):
-        for key in signal_labels:
-            if disc.get(key):
-                has_disc = True
-                break
-    if has_disc:
-        h += "<h3 style='color:#0f3460'>&#128240; Finviz Screener Signals</h3>"
-        h += "<table><tr><th>Signal Type</th><th>Count</th><th>Tickers (Top 15)</th></tr>"
-        for key, label in signal_labels.items():
-            tickers = disc.get(key, [])
-            if isinstance(tickers, list) and tickers:
-                display = ", ".join(tickers[:15])
-                extra = " ..." if len(tickers) > 15 else ""
-                h += "<tr><td><b>%s</b></td><td><span class='badge bb'>%d</span></td><td>%s%s</td></tr>" % (label, len(tickers), display, extra)
-            else:
-                h += "<tr><td>%s</td><td>0</td><td style='color:#aaa'>None detected</td></tr>" % label
-        h += "</table>"
-    else:
-        h += "<p style='color:#888'>Finviz screener data not available for this run.</p>"
-
-    # 10b: Congress Trades
-    h += "<h3 style='color:#0f3460;margin-top:14px'>&#127963;&#65039; Recent Congress Purchases (30 Days)</h3>"
-    if congress and isinstance(congress, list) and len(congress) > 0:
-        # congress might be list of tickers or list of dicts
-        if isinstance(congress[0], dict):
-            congress_tickers = [c.get("ticker", c.get("symbol", "?")) for c in congress]
-        else:
-            congress_tickers = [str(c) for c in congress]
-        display_ct = ", ".join(congress_tickers[:20])
-        extra_ct = " ..." if len(congress_tickers) > 20 else ""
-        h += "<p><b>%d tickers detected:</b> %s%s</p>" % (len(congress_tickers), display_ct, extra_ct)
-    else:
-        h += "<p style='color:#888'>No recent congressional trade data available.</p>"
-    h += "</div>"
-
-    # ══════════════════════════════════════════════════════════
-    # FOOTER
-    # ══════════════════════════════════════════════════════════
-    h += "<div class='ftr'><p><b>Source:</b> TopBottom Scanner v2.0 | 10-Section Daily Intelligence + 7-Layer Quality Filter + Options Intel + Dynamic Discovery</p>"
+    h += "<div class='ftr'><p><b>Source:</b> TopBottom Scanner v2.0 + yfinance | 7-Layer Quality Filter</p>"
     h += "<p><b>Disclaimer:</b> For informational purposes only. Not financial advice.</p></div>"
     h += "</div></body></html>"
     return h
+
 
 def tb_send_email(subject, html_content):
     """Send HTML email using configured Gmail credentials."""
@@ -3455,7 +3225,8 @@ def tb_send_email(subject, html_content):
         msg["From"] = EMAIL_ADDRESS
         msg["To"] = ", ".join(_QF_RECIPIENTS)
         msg.attach(_MIMEText(html_content, "html"))
-        with _smtplib.SMTP_SSL(_QF_SMTP_SERVER, 465) as server:
+        with _smtplib.SMTP(_QF_SMTP_SERVER, 587) as server:
+            server.ehlo(); server.starttls()
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.sendmail(EMAIL_ADDRESS, _QF_RECIPIENTS, msg.as_string())
         logger.info("  REPORT EMAIL: Sent '%s' to %s", subject, ", ".join(_QF_RECIPIENTS))
@@ -3465,228 +3236,16 @@ def tb_send_email(subject, html_content):
         return False
 
 
-
-_INSTITUTIONAL_PROMPT = """
-Act as an elite institutional macro + thematic investment research desk specializing in:
-* secular demand-transition analysis
-* capital-cycle detection
-* future bottleneck discovery
-* institutional accumulation analysis
-* liquidity-rotation analysis
-* narrative-transition detection
-* infrastructure dependency analysis
-* operating leverage inflection analysis
-* technical accumulation structure analysis
-* long-duration thematic investing
-* strategic industry evolution analysis
-* hidden supplier discovery
-* future infrastructure mapping
-* asymmetric pre-rerating opportunity discovery
-
-PRIMARY OBJECTIVE: Identify future institutional winners BEFORE mainstream discovery.
-
-The objective is NOT to find current hype, already-crowded momentum trades, already-exploded secular winners, narrative-saturated sectors, or euphoric institutional positioning.
-
-The objective IS to identify: future infrastructure bottlenecks, future strategic dependencies, emerging demand-transition beneficiaries, hidden suppliers, overlooked enabling technologies, second-order secular-growth winners, sectors BEFORE Wall Street fully reprices them.
-
-DEMAND-TRANSITION DETECTION: Identify industries where structural demand behavior is changing, replacement cycles are beginning, infrastructure requirements are increasing, compute/energy/data/automation intensity is rising, supply chains are becoming constrained, enterprise spending priorities are shifting, government incentives are increasing, future capacity shortages may emerge.
-
-CAPITAL-CYCLE ANALYSIS: Prioritize industries where years of underinvestment occurred, future supply shortages may emerge, barriers to entry are increasing, demand elasticity is underestimated, operating leverage could expand dramatically.
-
-TECHNICAL ACCUMULATION: Prioritize stocks showing 6-36 month accumulation structures, volatility compression, quiet institutional accumulation, improving relative strength, constructive Stage-1 bases, early Stage-2 transitions, breakout proximity WITHOUT euphoric extension. Reject vertical/parabolic charts, crowded momentum.
-
-FOR EACH STOCK PROVIDE: Company + ticker, Sector/theme, Why future demand may accelerate, Why this company may become strategically important, Current chart stage, Technical accumulation quality, Capital-cycle positioning, Institutional accumulation signs, Revenue/earnings inflection potential, Operating leverage potential, Why this is STILL EARLY, Future rerating catalysts, Probability of future institutional crowding, Why this is NOT already too late.
-
-FINAL OUTPUT: Top future bottleneck providers, Top pre-rerating opportunities, Emerging sectors BEFORE mainstream narrative, Hidden infrastructure beneficiaries, Most attractive accumulation structures, Most underappreciated future-capex beneficiaries, Stocks with highest long-duration asymmetric upside, Stocks most likely to experience future institutional rerating.
-
-Be extremely critical. Reject hype. Prioritize future demand transitions, infrastructure bottlenecks, early institutional accumulation, hidden strategic importance, capital-cycle acceleration, pre-rerating setups, long-duration asymmetry.
-"""
-
-
-def tb_generate_institutional_research_email(data):
-    """Build the Institutional Research email: Prompt + Live Scanner Data + Options + Discovery for AI analysis."""
-    ts = data.get("timestamp", "?")
-    regime = data.get("regime", {})
-    reg = regime.get("regime", "NEUTRAL")
-    spy_rsi = regime.get("spy_rsi", 50)
-
-    h = "<html><head><style>"
-    h += "body{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:#f5f5f5}"
-    h += ".ctr{max-width:950px;margin:0 auto;background:#fff}"
-    h += ".hdr{background:linear-gradient(135deg,#0a0a1a,#1a1a3e,#0a2a5e);color:#fff;padding:25px 30px;text-align:center}"
-    h += ".hdr h1{margin:0;font-size:20px}"
-    h += ".sec{padding:18px 22px;border-bottom:1px solid #e0e0e0}"
-    h += ".sec h2{color:#1a1a2e;font-size:16px;margin:0 0 10px;border-left:4px solid #0a2a5e;padding-left:10px}"
-    h += ".prompt-box{background:#f8f9fc;border:2px solid #c3d0e0;border-radius:8px;padding:18px;font-size:11px;color:#333;white-space:pre-wrap;max-height:400px;overflow-y:auto;margin:10px 0}"
-    h += ".data-box{background:#0a0a1a;color:#e6f1ff;border-radius:8px;padding:18px;font-family:'Courier New',monospace;font-size:12px;white-space:pre-wrap;margin:10px 0}"
-    h += ".tip{background:#fffbe6;border:1px solid #ffe58f;padding:12px;border-radius:6px;font-size:12px;margin:10px 0}"
-    h += ".ftr{background:#f0f0f0;padding:12px 20px;font-size:9px;color:#888}"
-    h += "</style></head><body><div class='ctr'>"
-
-    # HEADER
-    h += "<div class='hdr'><h1>&#128300; Institutional Research Scan</h1>"
-    h += "<div style='color:#a0c4ff;font-size:13px;margin-top:6px'>Prompt + Live Scanner Data + Options Intel + Discovery — Ready for AI Analysis</div>"
-    h += "<div style='color:#ccc;font-size:11px;margin-top:6px'>%s</div></div>" % ts
-
-    # TIP
-    h += "<div class='sec'><div class='tip'>"
-    h += "<strong>&#128161; How to use this report:</strong><br>"
-    h += "1. Select ALL text below (Ctrl+A) or copy the prompt + data sections<br>"
-    h += "2. Paste into ChatGPT, Copilot, or Claude<br>"
-    h += "3. The AI will analyze the REAL data below using the institutional research framework<br>"
-    h += "4. You get deep analysis backed by actual market data — no hallucinated numbers"
-    h += "</div></div>"
-
-    # SECTION 1: THE PROMPT
-    h += "<div class='sec'><h2>&#128203; Part 1: Institutional Research Prompt</h2>"
-    h += "<div class='prompt-box'>%s</div></div>" % _INSTITUTIONAL_PROMPT.replace("<", "&lt;").replace(">", "&gt;")
-
-    # SECTION 2: LIVE DATA
-    h += "<div class='sec'><h2>&#128202; Part 2: Today's Live Scanner Data</h2>"
-    h += "<p style='font-size:12px;color:#666'>Use this data to complete the analysis above. All data is real-time from yfinance.</p>"
-
-    data_text = "=" * 60 + "\n"
-    data_text += "TODAY'S LIVE MARKET DATA — %s\n" % ts
-    data_text += "=" * 60 + "\n\n"
-
-    # Market Regime
-    data_text += "MARKET REGIME: %s | SPY RSI: %.1f\n" % (reg, spy_rsi)
-    vix = data.get("macro", {}).get("^VIX", {})
-    data_text += "VIX: %s | " % _rv(vix.get("price"), "%.1f")
-    dxy = data.get("macro", {}).get("DX-Y.NYB", {})
-    data_text += "DXY: %s | " % _rv(dxy.get("price"), "%.2f")
-    tnx = data.get("macro", {}).get("^TNX", {})
-    data_text += "10Y Yield: %s\n\n" % _rv(tnx.get("price"), "%.2f%%")
-
-    # Macro
-    data_text += "--- MACRO INDICES ---\n"
-    for t, info in data.get("macro", {}).items():
-        data_text += "  %-12s Price=%-10s 5d=%s%% RSI=%s Signal=%s\n" % (
-            t, _rv(info.get("price")), _rv(info.get("trend_5d"), "%+.2f"),
-            _rv(info.get("rsi"), "%.0f"), _r_rsi_sig(info.get("rsi")))
-    data_text += "\n"
-
-    # Sectors
-    data_text += "--- SECTOR ROTATION (sorted by RS vs SPY) ---\n"
-    for etf, info in sorted(data.get("sectors", {}).items(), key=lambda x: x[1].get("rs", 0), reverse=True):
-        data_text += "  %-5s %-20s RS=%s%% Rating=%s Price=$%s\n" % (
-            etf, info.get("name", ""), _rv(info.get("rs"), "%+.3f"),
-            info.get("strength", "?"), _rv(info.get("price")))
-    data_text += "\n"
-
-    # Cross Assets
-    data_text += "--- CROSS-ASSET DASHBOARD ---\n"
-    for t, info in data.get("cross_assets", {}).items():
-        data_text += "  %-12s %-12s Price=$%-10s 5d=%s%% RSI=%s\n" % (
-            t, info.get("name", ""), _rv(info.get("price")),
-            _rv(info.get("trend_5d"), "%+.2f"), _rv(info.get("rsi"), "%.0f"))
-    data_text += "\n"
-
-    # Quality Results
-    data_text += "--- TOP QUALITY STOCKS (7-LAYER FILTER) ---\n"
-    for r in data.get("quality_results", [])[:25]:
-        data_text += "  [%s] %-6s Score=%.1f Signal=%-7s Sector=%-7s Tier=%s Price=$%s\n" % (
-            r.get("quality_grade", "?"), r.get("ticker", "?"), r.get("quality_score", 0),
-            r.get("quality_signal_type", "?"), r.get("quality_sector_str", "?"),
-            r.get("quality_tier", "?"), _rv(r.get("last_close")))
-    data_text += "\n"
-
-    # ── NEW: Options Intelligence Context ──
-    opts = data.get("options_intel", [])
-    if opts:
-        data_text += "--- OPTIONS INTELLIGENCE (A+/A STOCKS) ---\n"
-        data_text += "  %-6s %-5s %-6s %-8s %-8s %-8s %-8s %-10s %-12s %-6s\n" % (
-            "Ticker", "Grade", "PCR", "IV_Call", "IV_Put", "Unusual", "Ratio", "Max Pain", "SmartMoney", "Score")
-        for o in opts[:20]:
-            pcr_str = ("%.2f" % o["pcr"]) if o.get("pcr") is not None else "N/A"
-            iv_c = ("%.0f%%" % (o.get("iv_calls",0)*100)) if o.get("iv_calls") is not None else "N/A"
-            iv_p = ("%.0f%%" % (o.get("iv_puts",0)*100)) if o.get("iv_puts") is not None else "N/A"
-            unusual_str = "YES" if o.get("unusual") else "No"
-            ur = ("%.1fx" % o["unusual_ratio"]) if o.get("unusual_ratio") else "N/A"
-            mp = ("$%.0f" % o["max_pain"]) if o.get("max_pain") else "N/A"
-            sm = o.get("smart_money", "N/A")
-            data_text += "  %-6s %-5s %-6s %-8s %-8s %-8s %-8s %-10s %-12s %-6d\n" % (
-                o.get("ticker","?"), o.get("grade","?"), pcr_str, iv_c, iv_p,
-                unusual_str, ur, mp, sm, o.get("options_score",0))
-        data_text += "\n"
-
-    # ── NEW: Dynamic Discovery Context ──
-    disc = data.get("discovery", {})
-    congress = data.get("congress", [])
-    if disc or congress:
-        data_text += "--- DYNAMIC STOCK DISCOVERY ---\n"
-        signal_labels = {
-            "unusual_volume": "Unusual Volume",
-            "new_highs": "New 52-Week Highs",
-            "most_active": "Most Active",
-            "oversold": "Oversold (RSI)",
-            "channel_up": "Channel Up (Trend)",
-        }
-        for key, label in signal_labels.items():
-            tickers = disc.get(key, []) if isinstance(disc, dict) else []
-            if tickers:
-                data_text += "  %s: %s\n" % (label, ", ".join(tickers[:15]))
-        if congress:
-            if isinstance(congress[0], dict):
-                ct = [c.get("ticker", c.get("symbol", "?")) for c in congress]
-            else:
-                ct = [str(c) for c in congress]
-            data_text += "  Congress Purchases (30d): %s\n" % ", ".join(ct[:20])
-        data_text += "\n"
-
-    # Key Levels
-    data_text += "--- KEY PRICE LEVELS ---\n"
-    for t, lv in data.get("key_levels", {}).items():
-        data_text += "  %-10s Support=$%-10s Current=$%-10s Resistance=$%-10s\n" % (
-            t, _rv(lv.get("support")), _rv(lv.get("current")), _rv(lv.get("resistance")))
-
-    h += "<div class='data-box'>%s</div></div>" % data_text
-
-    # FOOTER
-    h += "<div class='ftr'><p><b>Source:</b> TopBottom Scanner v2.0 | 10-Section Institutional Research + Options + Discovery</p>"
-    h += "<p><b>Disclaimer:</b> For informational purposes only. Not financial advice.</p></div>"
-    h += "</div></body></html>"
-    return h
-
 def tb_check_and_send_reports(regime_data=None, sector_data=None, quality_results=None):
-    """Non-blocking report scheduler. Handles 11AM, 2PM, 3PM, 4PM reports."""
-    global report_11am_sent, report_2pm_sent, report_3pm_sent, report_4pm_sent
-    # Reliable ET time without requiring pytz
+    """Non-blocking report scheduler. Call after scan completes."""
+    global report_2pm_sent, report_4pm_sent
     try:
-        import calendar as _cal
-        _utc_now = datetime.now(timezone.utc)
-        _month = _utc_now.month
-        if 3 < _month < 11:
-            _is_dst = True
-        elif _month == 3:
-            _ss = 14 - _cal.weekday(_utc_now.year, 3, 1)
-            if _ss <= 0: _ss += 7
-            _is_dst = _utc_now.day >= _ss
-        elif _month == 11:
-            _fs = 7 - _cal.weekday(_utc_now.year, 11, 1)
-            if _fs <= 0: _fs += 7
-            _is_dst = _utc_now.day < _fs
-        else:
-            _is_dst = False
-        _offset = timedelta(hours=-4 if _is_dst else -5)
-        now = _utc_now + _offset
-    except Exception:
+        import pytz
+        now = datetime.now(pytz.timezone("US/Eastern"))
+    except:
         now = datetime.now(timezone.utc)
-
-    # 11:00 AM — Institutional Research Scan
-    if not report_11am_sent and now.hour >= REPORT_11AM_HOUR:
-        logger.info("  REPORT: 11 AM trigger — Institutional Research Scan...")
-        try:
-            rdata = tb_fetch_report_data(regime_data, sector_data, quality_results)
-            html = tb_generate_institutional_research_email(rdata)
-            tb_send_email("Institutional Research Scan — %s 11:00 AM" % rdata["date"], html)
-            report_11am_sent = True
-        except Exception as e:
-            logger.exception("  REPORT: 11 AM failed: %s", e)
-
-    # 2:00 PM — Mid-Day Market Intelligence
     if not report_2pm_sent and now.hour >= REPORT_2PM_HOUR:
-        logger.info("  REPORT: 2 PM trigger — Mid-Day Intelligence...")
+        logger.info("  REPORT: 2 PM trigger — generating mid-day report...")
         try:
             rdata = tb_fetch_report_data(regime_data, sector_data, quality_results)
             html = tb_generate_report_html(rdata)
@@ -3694,21 +3253,8 @@ def tb_check_and_send_reports(regime_data=None, sector_data=None, quality_result
             report_2pm_sent = True
         except Exception as e:
             logger.exception("  REPORT: 2 PM failed: %s", e)
-
-    # 3:00 PM — Pre-Close Institutional Research
-    if not report_3pm_sent and now.hour >= REPORT_3PM_HOUR:
-        logger.info("  REPORT: 3 PM trigger — Pre-Close Institutional Research...")
-        try:
-            rdata = tb_fetch_report_data(regime_data, sector_data, quality_results)
-            html = tb_generate_institutional_research_email(rdata)
-            tb_send_email("Pre-Close Institutional Research — %s 3:00 PM" % rdata["date"], html)
-            report_3pm_sent = True
-        except Exception as e:
-            logger.exception("  REPORT: 3 PM failed: %s", e)
-
-    # 4:00 PM — End-of-Day Report
     if not report_4pm_sent and now.hour >= REPORT_4PM_HOUR:
-        logger.info("  REPORT: 4 PM trigger — EOD Report...")
+        logger.info("  REPORT: 4 PM trigger — generating EOD report...")
         try:
             rdata = tb_fetch_report_data(regime_data, sector_data, quality_results)
             html = tb_generate_report_html(rdata)
@@ -3716,6 +3262,7 @@ def tb_check_and_send_reports(regime_data=None, sector_data=None, quality_result
             report_4pm_sent = True
         except Exception as e:
             logger.exception("  REPORT: 4 PM failed: %s", e)
+
 
 
 
@@ -3762,7 +3309,7 @@ def opt_fetch_options_intel(ticker):
             elif p_ratio > 3.0:
                 intel["unusual_activity"]=True; intel["unusual_ratio"]=round(p_ratio,1); intel["unusual_side"]="PUTS"
 
-        # 4. MAX PAIN
+        # 4. MAX PAIN (strike where most options expire worthless)
         try:
             if "openInterest" in calls.columns and "strike" in calls.columns:
                 strikes = sorted(set(calls["strike"].dropna().tolist() + puts["strike"].dropna().tolist()))
@@ -3812,6 +3359,7 @@ def opt_enrich_results(results):
         if r.get("quality_grade", "F") not in ("A+", "A"):
             r["options_intel"] = None; continue
         ticker = r.get("ticker", "")
+        # Skip non-optionable instruments
         if "-USD" in ticker or "=F" in ticker or "^" in ticker:
             r["options_intel"] = None; continue
         try:
@@ -3819,88 +3367,51 @@ def opt_enrich_results(results):
             intel = opt_fetch_options_intel(ticker)
             r["options_intel"] = intel; enriched += 1
             if intel.get("pcr") is not None:
-                logger.info("    %s PCR=%.2f IV=%.1f%% Unusual=%s Bias=%s MaxPain=$%s",
+                logger.info("    %s PCR=%.2f IV=%.1f%% Unusual=%s Bias=%s MaxPain=$%s OptScore=%s",
                     ticker, intel["pcr"], intel.get("iv_avg_call") or 0,
                     ("%s %.1fx %s" % (intel["unusual_activity"], intel.get("unusual_ratio") or 0, intel.get("unusual_side") or "-")),
-                    intel.get("smart_money_bias","?"), intel.get("max_pain","?"))
-            time.sleep(0.5)
+                    intel.get("smart_money_bias","?"), intel.get("max_pain","?"), intel.get("options_score","?"))
+            time.sleep(0.5)  # Rate limit protection
         except Exception as e:
             r["options_intel"] = None; logger.warning("  OPTIONS: Error %s: %s", ticker, e)
     logger.info("  OPTIONS: Enriched %d stocks with options data", enriched)
     return results
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# DYNAMIC STOCK DISCOVERY — Finviz Screeners + Congress Trades (FREE)
-# These fetch the latest hot/active/unusual stocks daily — never hardcoded
-# ═══════════════════════════════════════════════════════════════════════════
-
-def fetch_finviz_signal(signal_id, max_tickers=50):
-    """Fetch tickers from a Finviz screener signal page (free, no API key needed)."""
-    tickers = []
-    try:
-        url = f"https://finviz.com/screener.ashx?v=111&s={signal_id}&o=-marketcap"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", "ignore")
-        for df in pd.read_html(StringIO(html)):
-            cols = [str(c).lower() for c in df.columns]
-            if "ticker" in cols:
-                raw = df[df.columns[cols.index("ticker")]].astype(str).str.strip().str.upper().tolist()
-                valid = [t for t in raw if t != "TICKER" and 1 <= len(t) <= 6 and t.isalpha()]
-                tickers.extend(valid[:max_tickers])
-                break
-    except Exception as e:
-        logger.warning("  FINVIZ SIGNAL %s failed: %s", signal_id, e)
-    return tickers
-
-
-def fetch_dynamic_discovery():
-    """Fetch hot stocks from multiple free Finviz screener signals."""
-    discovery = {}
-    signal_map = {
-        "unusual_volume": "ta_unusualvolume",
-        "new_highs": "ta_newhigh",
-        "most_active": "ta_mostactive",
-        "oversold": "ta_oversold",
-        "channel_up": "ta_channelup",
-    }
-    for key, sig_id in signal_map.items():
-        logger.info("  DISCOVERY: Fetching %s from Finviz...", key)
-        tickers = fetch_finviz_signal(sig_id, max_tickers=30)
-        discovery[key] = tickers
-        logger.info("    Got %d tickers for %s", len(tickers), key)
-        time.sleep(1.0 + random.random())
-    return discovery
-
-
-def fetch_congress_trades():
-    """Fetch recent congress stock trades from free public dataset."""
-    tickers = []
-    try:
-        url = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8", "ignore"))
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-        seen = set()
-        for trade in data:
-            if trade.get("type", "").lower() == "purchase" and trade.get("transaction_date", "") >= cutoff:
-                ticker = trade.get("ticker", "").strip().upper()
-                if ticker and len(ticker) <= 6 and "--" not in ticker and ticker not in seen:
-                    tickers.append(ticker)
-                    seen.add(ticker)
-        logger.info("  CONGRESS: Found %d recent purchase tickers (last 30 days)", len(tickers))
-    except Exception as e:
-        logger.warning("  CONGRESS TRADES fetch failed: %s", e)
-    return tickers[:50]
-
-
-    watchlist_tickers = set(t for group in watchmap_final.values() for t in group)
-    favorite_tickers = set(t for group in favmap_final.values() for t in group)
-    all_entry_data = watchdata_final.copy()
-    all_entry_data.update(favdata_final) 
+def main():
+    auto_import_favorites_from_downloads()
+    logger.info("--- MAINTENANCE: Clearing Cache Directory to force fresh data ---")
+    clean_output_directory(CACHE_DIR)
+    
+    clean_output_directory(MASTER_OUTPUT_DIR)
+    Path = __import__("pathlib").Path
+    Path(os.path.join(MASTER_OUTPUT_DIR, ".gitkeep")).touch(exist_ok=True)
+    Path(os.path.join(MASTER_OUTPUT_DIR, ".nojekyll")).touch(exist_ok=True)
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    os.makedirs(CHARTS_DIR, exist_ok=True)
+            
+    watchmap_final = {}; watchdata_final = {}; favmap_final = {}; favdata_final = {}; current_favorites_list = [] 
+    if USE_WATCHLIST_EXCEL:
+        watchmap_orig, watchdata_orig = load_watchlist_from_excel(WATCHLIST_FILE)
+        watchmap_final = (watchmap_orig or {}).copy()
+        watchdata_final = (watchdata_orig or {}).copy()
+        
+        favmap_new, favdata_new = load_watchlist_from_excel(FAVORITES_FILE)
+        favmap_final = (favmap_new or {}).copy()
+        favdata_final = (favdata_new or {}).copy()
+        
+        if favdata_new:
+            for ticker, info in favdata_new.items():
+                current_favorites_list.append({
+                    'Ticker': ticker,
+                    'EntryPrice': info.get('price'),
+                    'EntryDate': info.get('date')
+                })
+        
+        watchlist_tickers = set(t for group in watchmap_final.values() for t in group)
+        favorite_tickers = set(t for group in favmap_final.values() for t in group)
+        all_entry_data = watchdata_final.copy()
+        all_entry_data.update(favdata_final) 
 
     inbox_map = parse_inbox()
     inbox_tickers = set(inbox_map.keys())
@@ -3962,7 +3473,7 @@ def fetch_congress_trades():
     _qf_bgrade = [r for r in results if r.get("quality_grade","F") == "B"]
     logger.info("  Quality: %d A+/A | %d B | %d total", len(_qf_passed), len(_qf_bgrade), len(results))
 
-    # v2.0: Inject quality grade as filter tags (creates clickable buttons in filter bar)
+    # v2.0: Inject quality grade as filter tag → creates clickable button in filter bar
     for _r in results:
         _qg = _r.get('quality_grade', 'F')
         if _qg == 'A+':
@@ -3976,7 +3487,7 @@ def fetch_congress_trades():
     logger.info("  Enriching A+/A stocks with options data...")
     results = opt_enrich_results(results)
 
-    # v2.0: Inject options data as filter tags
+    # Inject options data as tags for display
     for _r in results:
         oi = _r.get('options_intel')
         if oi and oi.get('pcr') is not None:
@@ -4014,7 +3525,7 @@ def fetch_congress_trades():
     for r in results:
         ticker = r['ticker']
         for cat, tickers in universe_map.items():
-            if ticker in tickers and r.get('tags') and r.get('quality_grade', 'F') in ('A+', 'A', 'B'):
+            if ticker in tickers and r.get('tags'):
                 _append_unique(groups_univ, cat, r)
 
         for cat, tickers in watchmap_final.items():
@@ -4025,7 +3536,7 @@ def fetch_congress_trades():
             if ticker in tickers:
                 _append_unique(groups_fav, cat, r)
 
-        if ticker in inbox_tickers and r.get('quality_grade', 'F') in ('A+', 'A', 'B'):
+        if ticker in inbox_tickers:
             _append_unique(groups_inbox, "Recent Inbox Alerts", r)
 
         if r.get('tags'):
@@ -4287,63 +3798,12 @@ def fetch_congress_trades():
         logging.error(f"Worker error for {ticker}: {e}")
         logger.error("Failed to open browser: %s", e)
 
-def main():
-    auto_import_favorites_from_downloads()
-    logger.info("--- MAINTENANCE: Clearing Cache Directory to force fresh data ---")
-    clean_output_directory(CACHE_DIR)
-    
-    clean_output_directory(MASTER_OUTPUT_DIR)
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    os.makedirs(CHARTS_DIR, exist_ok=True)
-            
-    watchmap_final = {}; watchdata_final = {}; favmap_final = {}; favdata_final = {}; current_favorites_list = [] 
-    if USE_WATCHLIST_EXCEL:
-        watchmap_orig, watchdata_orig = load_watchlist_from_excel(WATCHLIST_FILE)
-        watchmap_final = (watchmap_orig or {}).copy()
-        watchdata_final = (watchdata_orig or {}).copy()
-        
-        favmap_new, favdata_new = load_watchlist_from_excel(FAVORITES_FILE)
-        favmap_final = (favmap_new or {}).copy()
-        favdata_final = (favdata_new or {}).copy()
-        
-        if favdata_new:
-            for ticker, info in favdata_new.items():
-                current_favorites_list.append({
-                    'Ticker': ticker,
-                    'EntryPrice': info.get('price'),
-                    'EntryDate': info.get('date')
-                })
-        
-
 def market_is_open():
-    """Return True when NYSE is open.
-
-    If pandas_market_calendars is not installed in GitHub Actions, use a simple
-    weekday/time fallback so the script does not crash before main() starts.
-    """
-    try:
-        now = pd.Timestamp.now(tz="America/New_York")
-        if mcal is not None:
-            nyse = mcal.get_calendar("NYSE")
-            sched = nyse.schedule(start_date=now.date(), end_date=now.date())
-            if sched.empty:
-                return False
-            return sched.iloc[0]["market_open"] <= now <= sched.iloc[0]["market_close"]
-
-        # Fallback: Monday-Friday, 9:30 AM-4:00 PM ET.
-        # This does not know market holidays, but prevents GitHub runs from failing
-        # when the optional calendar package is unavailable.
-        if now.weekday() >= 5:
-            return False
-        open_time = now.normalize() + pd.Timedelta(hours=9, minutes=30)
-        close_time = now.normalize() + pd.Timedelta(hours=16)
-        return open_time <= now <= close_time
-    except Exception as e:
-        try:
-            logger.warning("market_is_open fallback used after error: %s", e)
-        except Exception:
-            pass
-        return True
+    nyse = mcal.get_calendar("NYSE")
+    now = pd.Timestamp.now(tz="America/New_York")
+    sched = nyse.schedule(start_date=now.date(), end_date=now.date())
+    if sched.empty: return False
+    return sched.iloc[0]["market_open"] <= now <= sched.iloc[0]["market_close"]
 
 if __name__ == "__main__":
     if not market_is_open(): logger.info("Market is currently CLOSED. Running in offline/review mode.")
