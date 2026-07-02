@@ -2,21 +2,32 @@ name: Auto Update Stock Dashboard
 
 on:
   schedule:
-    - cron: "0 15 * * 1-5"
-    - cron: "0 18 * * 1-5"
-    - cron: "0 19 * * 1-5"
-    - cron: "0 20 * * 1-5"
+    # 11 AM ET  →  15:00 UTC (summer EDT), 16:00 UTC (winter EST)
+    - cron: "7 15 * * 1-5"
+    - cron: "7 16 * * 1-5"
+    # 2 PM ET  →  18:00 UTC (EDT), 19:00 UTC (EST)
+    - cron: "9 18 * * 1-5"
+    - cron: "9 19 * * 1-5"
+    # 3 PM ET  →  19:00 UTC (EDT), 20:00 UTC (EST)
+    - cron: "11 19 * * 1-5"
+    - cron: "11 20 * * 1-5"
+    # 4 PM ET  →  20:00 UTC (EDT), 21:00 UTC (EST)
+    - cron: "13 20 * * 1-5"
+    - cron: "13 21 * * 1-5"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: stock-dashboard-main
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -34,11 +45,19 @@ jobs:
             pip install -r requirements.txt
           fi
 
-      - name: Create Docs Folder
+      - name: Ensure Docs Folder Exists (Preserve Folder, Clean Old HTML)
         run: |
+          # Never delete the docs folder itself.
           mkdir -p docs
           touch docs/.nojekyll
           touch docs/.gitkeep
+          # Belt-and-suspenders: remove only old TopBottom_*.html so they never pile up.
+          # The scanner will write fresh HTML files in the same commit.
+          find docs -maxdepth 1 -type f -name "TopBottom_*.html" -delete || true
+          find docs -maxdepth 1 -type f -name "TopBottom_*.csv"  -delete || true
+          find docs -maxdepth 1 -type f -name "TopBottom_*.txt"  -delete || true
+          echo "Docs after pre-clean:"
+          ls -la docs
 
       - name: DEBUG Before Scanner
         run: |
@@ -54,6 +73,10 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           ENABLE_EMAIL_REPORTS: ${{ secrets.ENABLE_EMAIL_REPORTS }}
           PYTHONUNBUFFERED: "1"
+          # v2.2 tuning flags — override without editing code:
+          ENABLE_DYNAMIC_DISCOVERY: "true"
+          SEND_ALL_REPORTS_ON_MANUAL: "false"
+          HIDE_ZERO_FILTERS: "true"
 
       - name: DEBUG After Scanner
         run: |
@@ -61,17 +84,18 @@ jobs:
           ls -la
           ls -la docs || true
           echo "===== DOCS FILES ====="
-          find docs -type f || true
+          find docs -type f | sort || true
 
       - name: Commit Dashboard Files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # Only stage docs/ changes — old files are already replaced by scanner output.
           git add docs/
 
+          echo "===== GIT STATUS BEFORE COMMIT ====="
           git status
 
-          git commit -m "Auto update dashboard" || echo "No changes"
-
-          git push
+          git commit -m "Auto update dashboard: $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "No changes to commit"
+          git push origin main
